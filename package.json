@@ -1,0 +1,17 @@
+{
+  "name": "starks",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsc && node dist/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@guildofweavers/galois": "^0.4.22",
+    "@types/node": "^20.8.9",
+    "typescript": "^4.9.5"
+  }
+}
