@@ -1,5 +1,4 @@
 import {FiniteField, Polynom} from "@guildofweavers/galois";
-import exp from "constants";
 import {Polynomial} from "./Polynomial";
 
 
@@ -13,10 +12,10 @@ export class MultiPolynomial {
         this.field = field;
 
         let max = 0;
-        this.coefficients.forEach((value, key) => {
+        coefficients.forEach((value, key) => {
             if(value===0n) return;
             max = Math.max(key.length, max);
-        })
+        });
         this.numVariables = max;
 
         this.coefficients = coefficients;

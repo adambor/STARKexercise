@@ -149,7 +149,7 @@ export class PolynomialIOP {
 
         polynomials.forEach((poly, index) => {
             if(poly instanceof Polynomial) {
-                originalCodewords[index] = poly.scale(offset).evaluateAtRoots(powersOfOmega);
+                originalCodewords[index] = poly.evaluateAtRootsWithOffset(powersOfOmega, offset);
             } else {
                 originalCodewords[index] = poly.codeword;
             }
@@ -467,7 +467,7 @@ export class PolynomialIOP {
 
         console.log("Power series calculated: ", Date.now()-start);
 
-        const polynomialCodeword = polynomial.scale(offset).evaluateAtRoots(powersOfOmega.toValues());
+        const polynomialCodeword = polynomial.evaluateAtRootsWithOffset(powersOfOmega.toValues(), offset);
         const polynomialPMT = new MerkleTree(polynomialCodeword, byteLength);
 
         console.log("Polynomial evaluated: ", Date.now()-start);

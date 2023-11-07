@@ -6,6 +6,7 @@ import {Fri} from "./fri/Fri";
 import {ProofStream} from "./fiatshamir/ProofStream";
 import {PolynomialIOP} from "./polynomial/PolynomialIOP";
 import exp from "constants";
+import {Fibonacci} from "./programs/Fibonacci";
 
 const field = galois.createPrimeField(407n * 2n ** 119n + 1n, false);
 const fieldGenerator = 85408008396924667383611388730472331217n;
@@ -119,11 +120,14 @@ function verifyEvaluationIOP() {
 
     console.log("Proof length: ", proofStream.serialize().length);
 
+    startTime = Date.now();
     PolynomialIOP.verifyEvaluation(field, polynomialCommitment, polynomialDegree, x, fX, offset, expansionFactor, securityLevel, byteLength, proofStream);
+    console.log("Proof verify time: ", Date.now()-startTime);
 
 }
 
 function verifyRootsOfUnity() {
+
     const size = 8;
 
     const offset = fieldGenerator;
@@ -147,8 +151,83 @@ function verifyRootsOfUnity() {
 
 }
 
+function checkPolySpeed() {
+
+    const degree = 16*1024;
+    const evalDomain = 4*degree;
+    const omega = field.getRootOfUnity(evalDomain);
+    const powersOfOmega = field.getPowerSeries(omega, evalDomain).toValues();
+
+    const poly1 = new Polynomial(
+        field.newVectorFrom(Array.from({length: degree}, () => field.rand())),
+        field
+    );
+
+    const poly2 = new Polynomial(
+        field.newVectorFrom(Array.from({length: degree}, () => field.rand())),
+        field
+    );
+
+    let startTime = Date.now();
+
+    // const poly3 = poly1.mul(poly2);
+    // poly3.evaluateAtRoots(powersOfOmega);
+    //
+    // console.log("Poly multiplication: ", Date.now()-startTime);
+
+    startTime = Date.now();
+
+    const codeword1 = poly1.evaluateAtRoots(powersOfOmega);
+    const codeword2 = poly2.evaluateAtRoots(powersOfOmega);
+
+    const resultCodeword = codeword1.map((val, index) => {
+        return field.mul(val, codeword2[index]);
+    });
+
+    console.log("Codeword multiplication: ", Date.now()-startTime);
+
+    const omicron = field.getRootOfUnity(2*degree);
+    const omicronDomain = field.getPowerSeries(omicron, 2*degree).toValues();
+
+    startTime = Date.now();
+
+    const _codeword1 = poly1.evaluateAtRoots(omicronDomain);
+    const _codeword2 = poly2.evaluateAtRoots(omicronDomain);
+
+    const _resultCodeword = _codeword1.map((val, index) => {
+        return field.mul(val, _codeword2[index]);
+    });
+
+    const _poly3 = Polynomial.interpolateAtRoots(omicronDomain, _resultCodeword, field);
+    _poly3.evaluateAtRoots(powersOfOmega);
+
+    console.log("Fast multiplication: ", Date.now()-startTime);
+
+}
+
+function checkStark() {
+
+
+    const offset = fieldGenerator;
+    const expansionFactor = 4;
+    const securityLevel = 128;
+    const byteLength = 16;
+
+    const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel);
+    const fibResult = fibonacci.prove(130, true);
+
+    console.log("Fibonacci output: ", fibResult.output);
+
+    const serializedProof = fibResult.proof.serialize();
+
+    console.log("Serialized proof length: ", serializedProof.length);
+
+}
+
 //verifyRootsOfUnity();
 //verifyDegreeIOP();
-verifyEvaluationIOP();
+//verifyEvaluationIOP();
+//checkPolySpeed();
+checkStark();
 
 //console.log("Serialized proof: ", serialized.toString("hex"));

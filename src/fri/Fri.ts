@@ -198,7 +198,7 @@ export class Fri {
 
     }
 
-    verify(proofStream: ProofStream, byteLength: number, polynomialCommitment?: Buffer): bigint[][] {
+    verify(proofStream: ProofStream, byteLength: number, polynomialCommitment?: Buffer): [number, bigint][] {
 
         let offset = this.offset;
         let omega = this.omega;
@@ -255,7 +255,7 @@ export class Fri {
                 +expectedDegree+", observed: "+lastPolynomialDegree);
         }
 
-        const topCodewordPoints = Array<bigint[]>(2*this.numColinearityTests);
+        const topCodewordPoints = Array<[number, bigint]>(2*this.numColinearityTests);
 
         //Get codeword indices
         const topLevelIndices = this.sampleIndices(proofStream.verifierFiatShamir(), this.domainLength >> 1, this.domainLength >> (rounds-1), this.numColinearityTests);
@@ -285,8 +285,8 @@ export class Fri {
                 const B = this.field.mul(offset, this.field.exp(omega, BigInt(currentDomainLength + computedIndex)));
 
                 if(i===0) {
-                    topCodewordPoints[2*j] = [A, fA];
-                    topCodewordPoints[(2*j) + 1] = [B, fB];
+                    topCodewordPoints[2*j] = [computedIndex, fA];
+                    topCodewordPoints[(2*j) + 1] = [currentDomainLength + computedIndex, fB];
                 }
 
                 //Check colinearity

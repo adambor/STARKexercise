@@ -1,5 +1,13 @@
 import {FiniteField, Polynom, Vector} from "@guildofweavers/galois";
 
+function getNearestPowerOf2(degree: number) {
+    let i = 1;
+    while(i<degree+1) {
+        i *= 2;
+    }
+    return i;
+}
+
 export class Polynomial {
 
     field: FiniteField;
@@ -112,8 +120,25 @@ export class Polynomial {
         return this.field.evalPolyAtRoots(this.coefficients, this.field.newVectorFrom(points)).toValues();
     }
 
+    evaluateAtRootsWithOffset(points: bigint[], offset: bigint): bigint[] {
+        let currPower = 1n;
+        const scaledCoefficients = this.coefficients.toValues().map(val => {
+            let result = this.field.mul(
+                val,
+                currPower
+            );
+            currPower = this.field.mul(currPower, offset);
+            return result;
+        });
+        return this.field.evalPolyAtRoots(this.field.newVectorFrom(scaledCoefficients), this.field.newVectorFrom(points)).toValues();
+    }
+
     static interpolateDomain(domain: bigint[], values: bigint[], field: FiniteField): Polynomial {
         return new Polynomial(field.interpolate(field.newVectorFrom(domain), field.newVectorFrom(values)), field);
+    }
+
+    static interpolateAtRoots(domain: bigint[], values: bigint[], field: FiniteField): Polynomial {
+        return new Polynomial(field.interpolateRoots(field.newVectorFrom(domain), field.newVectorFrom(values)), field);
     }
 
     static zerofier(domain: bigint[], field: FiniteField): Polynomial {
