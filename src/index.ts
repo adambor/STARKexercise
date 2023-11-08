@@ -213,14 +213,23 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
+    const proveIndex = 4*1024;
+
+    let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel);
-    const fibResult = fibonacci.prove(130, true);
+    const fibResult = fibonacci.prove(proveIndex, false);
+    console.log("Proving time: ", Date.now()-start);
 
     console.log("Fibonacci output: ", fibResult.output);
 
     const serializedProof = fibResult.proof.serialize();
 
     console.log("Serialized proof length: ", serializedProof.length);
+
+    start = Date.now();
+    console.log("Fibonacci verify...");
+    fibonacci.verify(proveIndex, fibResult.output, fibResult.proof);
+    console.log("Fibonacci verified in ", Date.now()-start);
 
 }
 

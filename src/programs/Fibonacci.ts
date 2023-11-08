@@ -61,7 +61,7 @@ export class Fibonacci {
         traces[1].push(vars[1]);
 
         for(let i=0;i<index-2;i++) {
-            vars = [vars[1]+vars[0], vars[0]];
+            vars = [this.field.add(vars[1], vars[0]), vars[0]];
             traces[0].push(vars[0]);
             traces[1].push(vars[1]);
         }
@@ -71,7 +71,7 @@ export class Fibonacci {
             [1, [{cycle: 0, value: 1n}]]
         ]);
 
-        console.log("result=",vars[0])
+        console.log("result=",vars[0]);
 
         const proofStream = new ProofStream([]);
         stark.prove(traces, this.transitionConstraints, boundaryConditions, proofStream, runChecks);
@@ -80,6 +80,19 @@ export class Fibonacci {
             output: vars[0],
             proof: proofStream
         };
+
+    }
+
+    verify(index: number, evaluation: bigint, proof: ProofStream) {
+
+        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator);
+
+        const boundaryConditions: BoundaryConditions = new Map([
+            [0, [{cycle: 0, value: 1n}, {cycle: index-2, value: evaluation}]],
+            [1, [{cycle: 0, value: 1n}]]
+        ]);
+
+        stark.verify(proof, this.transitionConstraints, boundaryConditions);
 
     }
 

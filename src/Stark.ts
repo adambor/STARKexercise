@@ -98,7 +98,10 @@ export class Stark {
         const boundaryZerofiers = Array<Polynomial>(this.numRegisters);
         for(let i=0;i<this.numRegisters;i++) {
             const registerPoints = points.get(i);
-            if(registerPoints==null) continue;
+            if(registerPoints==null) {
+                boundaryZerofiers[i] = null;
+                continue;
+            }
             boundaryZerofiers[i] = Polynomial.zerofier(registerPoints.map(val => this.omicronDomain[val.cycle]), this.field);
         }
         return boundaryZerofiers;
@@ -108,7 +111,10 @@ export class Stark {
         const boundaryInterpolants = Array<Polynomial>(this.numRegisters);
         for(let i=0;i<this.numRegisters;i++) {
             const registerPoints = points.get(i);
-            if(registerPoints==null) continue;
+            if(registerPoints==null) {
+                boundaryInterpolants[i] = null;
+                continue;
+            }
             boundaryInterpolants[i] = Polynomial.interpolateDomain(
                 registerPoints.map(val => this.omicronDomain[val.cycle]),
                 registerPoints.map(val => val.value),
@@ -305,17 +311,39 @@ export class Stark {
         const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
         const sampledPoints = fri.prove(friCodeword, proofStream, this.byteLength);
 
+        //console.log("Fri points: ", sampledPoints);
+
         //Open up leaves on the boundary quotients/trace polys
         boundaryQuotientAndTracePMTs.forEach(codeword => {
             sampledPoints.forEach(i => {
-                proofStream.pushBigInt(codeword.leafs[i], this.byteLength);
-                proofStream.push(codeword.openBuffer(i));
+                {
+                    proofStream.pushBigInt(codeword.leafs[i], this.byteLength);
+                    proofStream.push(codeword.openBuffer(i));
 
-                const secondIndex = (i + this.expansionFactor) % this.omegaDomain.length;
-                proofStream.pushBigInt(codeword.leafs[secondIndex], this.byteLength);
-                proofStream.push(codeword.openBuffer(secondIndex));
+                    const secondIndex = (i + this.expansionFactor) % this.omegaDomain.length;
+                    proofStream.pushBigInt(codeword.leafs[secondIndex], this.byteLength);
+                    proofStream.push(codeword.openBuffer(secondIndex));
+                }
+
+                i = i + this.omegaDomain.length/2;
+
+                {
+                    proofStream.pushBigInt(codeword.leafs[i], this.byteLength);
+                    proofStream.push(codeword.openBuffer(i));
+
+                    const secondIndex = (i + this.expansionFactor) % this.omegaDomain.length;
+                    proofStream.pushBigInt(codeword.leafs[secondIndex], this.byteLength);
+                    proofStream.push(codeword.openBuffer(secondIndex));
+                }
             });
         });
+
+        // const point = sampledPoints[0];
+        // console.log("Traces at "+point, traceCodewords.map(val => val[point]));
+        // console.log("Traces+1 at "+point, traceCodewordsPlus1.map(val => val[point]));
+        // console.log("Constraint polynomials at "+point, transitionCodewords.map(val => val[point]));
+        // console.log("Transition quotients at "+point, transitionQuotientCodewords.map(val => val[point]));
+        // console.log("Boundary quotients at "+point, boundaryQuotientCodewords.map(val => val[point]));
 
     }
 
@@ -336,11 +364,15 @@ export class Stark {
             boundaryQuotientAndTraceRoots[i] = proofStream.pull();
         }
 
+        //console.log("boundaryQuotientAndTraceRoots", boundaryQuotientAndTraceRoots);
+
         const entropy = proofStream.verifierFiatShamir();
 
         //Run FRI
         const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
         const friPoints = fri.verify(proofStream, this.byteLength);
+
+        //console.log("Fri points: ", friPoints.map(point => point[0]));
 
         //Boundary quotient / trace polynomial points
         const boundaryQuotientAndTracePoints: bigint[][] = Array<bigint[]>(this.numRegisters);
@@ -348,26 +380,35 @@ export class Stark {
 
         boundaryQuotientAndTraceRoots.forEach((quotientOrTraceRoot, index) => {
 
+            //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: ", index);
+
             boundaryQuotientAndTracePoints[index] = Array<bigint>(friPoints.length);
             boundaryQuotientAndTracePointsPlus1[index] = Array<bigint>(friPoints.length);
 
             //Verify opened leaves on boundaryQuotientAndTracePMTs
             friPoints.forEach((point, i) => {
                 const polynomialValue = proofStream.pullBigInt();
+                //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: "+index+" load point: "+i);
                 if(!MerkleTree.verify(boundaryQuotientAndTraceRoots[index], point[0], proofStream.pull(), polynomialValue, this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly");
 
                 const secondIndex = (point[0] + this.expansionFactor) % this.omegaDomain.length;
                 const polynomialValuePlus1 = proofStream.pullBigInt();
-                if(!MerkleTree.verify(boundaryQuotientAndTraceRoots[index], secondIndex, proofStream.pull(), polynomialValuePlus1, this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly");
+                if(!MerkleTree.verify(boundaryQuotientAndTraceRoots[index], secondIndex, proofStream.pull(), polynomialValuePlus1, this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly (at i+1)");
 
                 boundaryQuotientAndTracePoints[index][i] = polynomialValue;
-                boundaryQuotientAndTracePointsPlus1[index][i] = polynomialValue;
+                boundaryQuotientAndTracePointsPlus1[index][i] = polynomialValuePlus1;
             });
 
         });
 
         const boundaryInterpolants = this.boundaryInterpolants(boundaryConditions);
         const boundaryZerofiers = this.boundaryZerofiers(boundaryConditions);
+
+        const boundaryQuotientDegreeBounds = this.boundaryQuotientDegreeBounds(boundaryZerofiers);
+
+        const transitionZerofier = this.transitionZerofier();
+
+        const transitionQuotientDegreeBounds = this.transitionQuotientDegreeBounds(this.transitionDegreeBounds(transitionConstraints));
 
         //Check every point
         friPoints.forEach((friPoint, pointIndex) => {
@@ -389,10 +430,129 @@ export class Stark {
             const iPlus1 = (friPoint[0] + this.expansionFactor) % this.omegaDomain.length;
             const xPlus1 = this.field.mul(this.friOffset, this.omegaDomain[iPlus1]);
 
-            let traces = Array<bigint>();
-            let tracesPlus1 = 0n;
+            let traces = Array<bigint>(this.numRegisters);
+            let tracesPlus1 = Array<bigint>(this.numRegisters);
             //Reconstruct original traces from boundary quotients
+            boundaryInterpolants.forEach((boundaryInterpolant, register) => {
+                if(boundaryInterpolant==null) {
 
+                    traces[register] = boundaryQuotientAndTracePoints[register][pointIndex];
+                    tracesPlus1[register] = boundaryQuotientAndTracePointsPlus1[register][pointIndex];
+
+                } else {
+
+                    const trace = this.field.add(
+                        this.field.mul(
+                            boundaryQuotientAndTracePoints[register][pointIndex],
+                            boundaryZerofiers[register].evaluate(x)
+                        ),
+                        boundaryInterpolant.evaluate(x)
+                    );
+                    const tracePlus1 = this.field.add(
+                        this.field.mul(
+                            boundaryQuotientAndTracePointsPlus1[register][pointIndex],
+                            boundaryZerofiers[register].evaluate(xPlus1)
+                        ),
+                        boundaryInterpolant.evaluate(xPlus1)
+                    );
+
+                    traces[register] = trace;
+                    tracesPlus1[register] = tracePlus1;
+                }
+            });
+
+            const multivariantPoint = [x].concat(
+                traces,
+                tracesPlus1
+            );
+
+            //Evaluate transition polynomial
+            const transitionPolynomialValues = transitionConstraints.map(constraint => {
+                return constraint.evaluate(multivariantPoint);
+            });
+
+            const transitionQuotientValues: bigint[] = transitionPolynomialValues.map(val => this.field.div(val, transitionZerofier.evaluate(x)));
+
+            let resultingPoint = 0n;
+
+            transitionQuotientValues.forEach((transitionQuotientValue, transitionIndex) => {
+
+                const buff = Buffer.alloc(6);
+                buff.writeUIntBE(transitionIndex, 0, 6);
+
+                const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                    entropy,
+                    buff,
+                    Buffer.from("00", "hex")
+                ])).digest());
+
+                const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                    entropy,
+                    buff,
+                    Buffer.from("01", "hex")
+                ])).digest());
+
+                const addVal = this.field.mul(
+                    this.field.add(
+                        alpha,
+                        this.field.mul(
+                            beta,
+                            this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[transitionIndex]-1))
+                        )
+                    ),
+                    transitionQuotientValue
+                );
+
+                resultingPoint = this.field.add(resultingPoint, addVal);
+
+            });
+
+            boundaryQuotientAndTracePoints.forEach((boundaryQuotientAndTraceValues, boundaryIndex) => {
+
+                const boundaryQuotientAndTraceValue = boundaryQuotientAndTraceValues[pointIndex];
+
+                let degreeBounds = boundaryQuotientDegreeBounds[boundaryIndex];
+                if(degreeBounds==null) {
+                    degreeBounds = this.numCycles-1;
+                }
+
+                const buff = Buffer.alloc(6);
+                buff.writeUIntBE(boundaryIndex, 0, 6);
+
+                const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                    entropy,
+                    buff,
+                    Buffer.from("02", "hex")
+                ])).digest());
+
+                const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                    entropy,
+                    buff,
+                    Buffer.from("03", "hex")
+                ])).digest());
+
+                const addVal = this.field.mul(
+                    this.field.add(
+                        alpha,
+                        this.field.mul(
+                            beta,
+                            this.field.exp(x, BigInt(this.omicronDomain.length-degreeBounds-1))
+                        )
+                    ),
+                    boundaryQuotientAndTraceValue
+                );
+
+                resultingPoint = this.field.add(resultingPoint, addVal);
+
+            });
+
+            // console.log("Traces at "+i, traces);
+            // console.log("Traces+1 at "+i, tracesPlus1);
+            // console.log("Constraint polynomials at "+i, transitionPolynomialValues);
+            // console.log("Transition quotients at "+i, transitionQuotientValues);
+            // console.log("Boundary quotients at "+i, boundaryQuotientAndTracePoints.map(val => val[pointIndex]));
+
+            if(friPoint[1]!==resultingPoint) throw new Error("Invalid combined FRI point, got: "+friPoint[1]+", expected: "+resultingPoint+"!");
 
         });
 
