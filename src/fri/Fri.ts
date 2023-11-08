@@ -82,26 +82,26 @@ export class Fri {
         const rounds = this.numRounds();
 
         for(let i=0;i<rounds;i++) {
-            const start = Date.now();
+            // const start = Date.now();
 
-            console.log("Start fri round: ", i);
+            // console.log("Start fri round: ", i);
 
             const pmt = new MerkleTree(codeword, byteLength);
-            console.log("Merkle tree computed: ", Date.now()-start);
+            // console.log("Merkle tree computed: ", Date.now()-start);
 
             const root = pmt.commit();
             proofStream.push(root);
 
             codewordTrees.push(pmt);
 
-            console.log("PMT committed: ", i);
+            // console.log("PMT committed: ", i);
 
             //Halt soon on last round
             if(i===rounds-1) break;
 
             const alpha = this.field.prng(proofStream.proverFiatShamir());
 
-            console.log("Alpha sampled: ", alpha);
+            // console.log("Alpha sampled: ", alpha);
 
             /*
             Split and fold
@@ -135,14 +135,14 @@ export class Fri {
                 );
             }
 
-            console.log("FRI folded: ", Date.now()-start);
+            // console.log("FRI folded: ", Date.now()-start);
 
             codeword = newCodeword;
 
             omega = this.field.mul(omega, omega);
             offset = this.field.mul(offset, offset);
 
-            console.log("Finish fri round: ", i);
+            // console.log("Finish fri round: ", i);
         }
 
         //Send last codeword
@@ -233,18 +233,19 @@ export class Fri {
         //Check omega's order
         if(this.field.inv(lastOmega) !== this.field.exp(lastOmega, BigInt(lastCodeword.length-1))) throw new Error("Omega doesn't have the right order");
 
-        const lastDomain = this.field.getPowerSeries(lastOmega, lastCodeword.length).toValues()
-            .map(val => this.field.mul(lastOffset, val));
+        const lastDomain = this.field.getPowerSeries(lastOmega, lastCodeword.length).toValues();
+            //.map(val => this.field.mul(lastOffset, val));
 
         //Interpolate poly
-        const poly = Polynomial.interpolateDomain(
+        const poly = Polynomial.interpolateAtRootsWithOffset(
             lastDomain,
             lastCodeword,
+            lastOffset,
             this.field
         );
 
         //Evaluate poly
-        const evaluatedCodeword = poly.evaluateDomain(lastDomain);
+        const evaluatedCodeword = poly.evaluateAtRootsWithOffset(lastDomain, lastOffset);
         for(let i=0;i<evaluatedCodeword.length;i++) {
             if(lastCodeword[i]!==evaluatedCodeword[i]) throw new Error("Re-evaluated codeword doesn't match original");
         }

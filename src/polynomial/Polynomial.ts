@@ -33,6 +33,33 @@ export class Polynomial {
         return new Polynomial(this.field.subPolys(this.coefficients, b.coefficients), this.field);
     }
 
+    fastMul(b: Polynomial): Polynomial {
+
+        const degree1 = this.degree();
+        const degree2 = b.degree();
+
+        const degreeSum = degree1 + degree2;
+
+        if(degreeSum<8) {
+            return this.mul(b);
+        }
+
+        const evaluationDomain = getNearestPowerOf2(degreeSum);
+
+        const omega = this.field.getRootOfUnity(evaluationDomain);
+        const powersOfOmega = this.field.getPowerSeries(omega, evaluationDomain);
+
+        const codeword1 = this.field.evalPolyAtRoots(this.coefficients, powersOfOmega).toValues();
+        const codeword2 = this.field.evalPolyAtRoots(b.coefficients, powersOfOmega).toValues();
+
+        const resultCodeword = codeword1.map((value, index) => {
+            return this.field.mul(value, codeword2[index]);
+        });
+
+        return Polynomial.interpolateAtRoots(powersOfOmega.toValues(), resultCodeword, this.field);
+
+    }
+
     mul(b: Polynomial): Polynomial {
         return new Polynomial(this.field.mulPolys(this.coefficients, b.coefficients), this.field);
     }
@@ -86,7 +113,7 @@ export class Polynomial {
             let result = this.field.mul(
                 val,
                 currPower
-            )
+            );
             currPower = this.field.mul(currPower, b);
             return result;
         });
@@ -141,6 +168,23 @@ export class Polynomial {
         return new Polynomial(field.interpolateRoots(field.newVectorFrom(domain), field.newVectorFrom(values)), field);
     }
 
+    static interpolateAtRootsWithOffset(domain: bigint[], values: bigint[], offset: bigint, field: FiniteField): Polynomial {
+        const offsetInv = field.inv(offset);
+
+        const originalCoefficients = field.interpolateRoots(field.newVectorFrom(domain), field.newVectorFrom(values)).toValues();
+        let currPower = 1n;
+        originalCoefficients.forEach((val, index) => {
+            let result = field.mul(
+                val,
+                currPower
+            );
+            currPower = field.mul(currPower, offsetInv);
+            originalCoefficients[index] = result;
+        });
+
+        return new Polynomial(field.newVectorFrom(originalCoefficients), field);
+    }
+
     static zerofier(domain: bigint[], field: FiniteField): Polynomial {
 
         const x = field.newVectorFrom([0n, 1n]);
@@ -153,6 +197,100 @@ export class Polynomial {
         }
 
         return new Polynomial(acc, field);
+
+    }
+
+    static fastZerofier(domain: bigint[], field: FiniteField) {
+
+        if(domain.length<=256) return Polynomial.zerofier(domain, field);
+
+        let degree = 4;
+        let lastLayer: Polynom[] = [];
+
+        //console.time("Polynomial.fastZerofier: Pre-process");
+        for(let i=0;i<Math.ceil(domain.length/degree);i++) {
+            if((degree*i)+3<domain.length) {
+                const a = domain[degree*i];
+                const b = domain[degree*i + 1];
+                const c = domain[degree*i + 2];
+                const d = domain[degree*i + 3];
+                lastLayer[i] = field.newVectorFrom([
+                    field.mul(field.mul(a, b), field.mul(c, d)),
+                    field.neg(field.add(
+                        field.add(
+                            field.mul(a, field.mul(b, c)),
+                            field.mul(a, field.mul(b, d))
+                        ),
+                        field.add(
+                            field.mul(a, field.mul(c, d)),
+                            field.mul(b, field.mul(c, d))
+                        )
+                    )),
+                    field.add(
+                        field.add(
+                            field.mul(a, b),
+                            field.mul(a, c)
+                        ),
+                        field.add(
+                            field.add(
+                                field.mul(a, d),
+                                field.mul(b, c)
+                            ),
+                            field.add(
+                                field.mul(b, d),
+                                field.mul(c, d)
+                            )
+                        )
+                    ),
+                    field.neg(field.add(field.add(a, b), field.add(c, d))),
+                    1n
+                ]);
+
+            } else if((degree*i)+2<domain.length) {
+                const a = domain[degree*i];
+                const b = domain[degree*i + 1];
+                const c = domain[degree*i + 2];
+                lastLayer[i] = field.newVectorFrom([
+                    field.neg(field.mul(a, field.mul(b, c))),
+                    field.add(
+                        field.mul(a,b),
+                        field.add(
+                            field.mul(b,c),
+                            field.mul(c,a)
+                        )
+                    ),
+                    field.neg(field.add(a, field.add(b, c))),
+                    1n
+                ]);
+            } else if((degree*i)+1<domain.length) {
+                const a = domain[degree*i];
+                const b = domain[degree*i + 1];
+                lastLayer[i] = field.newVectorFrom([field.mul(a, b), field.neg(field.add(a, b)), 1n]);
+            } else {
+                lastLayer[i] = field.newVectorFrom([field.neg(domain[degree*i]), 1n]);
+            }
+        }
+        // console.timeEnd("Polynomial.fastZerofier: Pre-process");
+
+        while(lastLayer.length>1) {
+            const newLayer: Polynom[] = [];
+            for(let i=0;i<Math.ceil(lastLayer.length/2);i++) {
+                if(lastLayer[(2*i) + 1]==null) {
+                    newLayer[i] = lastLayer[2*i];
+                } else {
+                    newLayer[i] = Polynomial.fastMulPolynom(
+                        lastLayer[2*i],
+                        lastLayer[(2*i) + 1],
+                        field,
+                        degree*4
+                    );
+                }
+            }
+            lastLayer = newLayer;
+            degree *= 2;
+        }
+
+        return new Polynomial(lastLayer[0], field);
 
     }
 
@@ -170,6 +308,32 @@ export class Polynomial {
         return true;
     }
 
+    static fastMulPolynom(a: Polynom, b: Polynom, field: FiniteField, evaluationDomain: number) {
 
+        if(evaluationDomain<=256) return field.mulPolys(a, b);
+
+        // console.time("Polynomial.fastMulPolynom: Roots of unity");
+        const omega = field.getRootOfUnity(evaluationDomain);
+        const powersOfOmega = field.getPowerSeries(omega, evaluationDomain);
+        // console.timeEnd("Polynomial.fastMulPolynom: Roots of unity");
+
+        // console.time("Polynomial.fastMulPolynom: Eval polys");
+        const codeword1 = field.evalPolyAtRoots(a, powersOfOmega).toValues();
+        const codeword2 = field.evalPolyAtRoots(b, powersOfOmega).toValues();
+        // console.timeEnd("Polynomial.fastMulPolynom: Eval polys");
+
+        // console.time("Polynomial.fastMulPolynom: Result codeword");
+        const resultCodeword = codeword1.map((value, index) => {
+            return field.mul(value, codeword2[index]);
+        });
+        // console.timeEnd("Polynomial.fastMulPolynom: Result codeword");
+
+        // console.time("Polynomial.fastMulPolynom: Interpolate");
+        const result = field.interpolateRoots(powersOfOmega, field.newVectorFrom(resultCodeword));
+        // console.timeEnd("Polynomial.fastMulPolynom: Interpolate");
+
+        return result;
+
+    }
 
 }

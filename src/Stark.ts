@@ -91,7 +91,7 @@ export class Stark {
     }
 
     transitionZerofier() {
-        return Polynomial.zerofier(this.omicronDomain.slice(0, this.numCycles-1), this.field);
+        return Polynomial.fastZerofier(this.omicronDomain.slice(0, this.numCycles-1), this.field);
     }
 
     boundaryZerofiers(points: BoundaryConditions): Polynomial[] {
@@ -102,7 +102,7 @@ export class Stark {
                 boundaryZerofiers[i] = null;
                 continue;
             }
-            boundaryZerofiers[i] = Polynomial.zerofier(registerPoints.map(val => this.omicronDomain[val.cycle]), this.field);
+            boundaryZerofiers[i] = Polynomial.fastZerofier(registerPoints.map(val => this.omicronDomain[val.cycle]), this.field);
         }
         return boundaryZerofiers;
     }
@@ -133,20 +133,29 @@ export class Stark {
         const executionDomain = this.omicronDomain.slice(0, this.numCycles);
 
         //Interpolate trace polys
+        console.time("STARK.prove: Trace interpolation");
         const tracePolynomials: Polynomial[] = trace.map(values => Polynomial.interpolateDomain(executionDomain, values, this.field));
+        console.timeEnd("STARK.prove: Trace interpolation");
 
+        console.time("STARK.prove: Boundary polys");
         const boundaryInterpolants = this.boundaryInterpolants(boundaryConditions);
         const boundaryZerofiers = this.boundaryZerofiers(boundaryConditions);
+        console.timeEnd("STARK.prove: Boundary polys");
 
         //Obtain trace polynomial codewords
+        console.time("STARK.prove: Trace codewords");
         const traceCodewords: bigint[][] = tracePolynomials.map(poly => poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
         const traceCodewordsPlus1: bigint[][] = tracePolynomials.map(poly => poly.scale(this.omicron).evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
+        console.timeEnd("STARK.prove: Trace codewords");
 
         //Boundary zerofier and interpolants codewords
+        console.time("STARK.prove: Boundary codewords");
         const boundaryInterpolantsCodewords: bigint[][] = boundaryInterpolants.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
         const boundaryZerofiersCodewords: bigint[][] = boundaryZerofiers.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
+        console.timeEnd("STARK.prove: Boundary codewords");
 
         //Obtain quotient codewords
+        console.time("STARK.prove: Boundary quotient codewords");
         const boundaryQuotientCodewords: bigint[][] = traceCodewords.map((codeword, registerIndex) => {
             const boundaryInterpolantCodeword = boundaryInterpolantsCodewords[registerIndex];
             const boundaryZerofiersCodeword = boundaryZerofiersCodewords[registerIndex];
@@ -167,6 +176,7 @@ export class Stark {
                 )
             });
         });
+        console.timeEnd("STARK.prove: Boundary quotient codewords");
 
         if(runChecks) {
             const boundaryQuotientPolys = boundaryQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
@@ -176,17 +186,22 @@ export class Stark {
         }
 
         //Map boundary quotient codewords (use raw traces for registries without boundary constraints) to PMTs
+        console.time("STARK.prove: Commit boundary quotient/trace");
         const boundaryQuotientAndTracePMTs = boundaryQuotientCodewords.map((codeword, index) => codeword==null ? new MerkleTree(traceCodewords[index], this.byteLength) : new MerkleTree(codeword, this.byteLength));
 
         //Commit boundary quotients & possibly traces
         boundaryQuotientAndTracePMTs.forEach(pmt => {
             proofStream.push(pmt.commit());
         });
+        console.timeEnd("STARK.prove: Commit boundary quotient/trace");
 
         //Transition zerofier Zt - value of 0 on point 0...this.numCycles-1
+        console.time("STARK.prove: Transition zerofier");
         const transitionZerofierCodewords = this.transitionZerofier().evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
+        console.timeEnd("STARK.prove: Transition zerofier");
 
         //Evaluate transition codewords - evaluation of multivariant polynomials Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...)
+        console.time("STARK.prove: Transition codewords");
         const transitionCodewords: bigint[][] = transitionConstraints.map(transitionPolynomial => {
             return this.omegaDomain.map((omegaPower, i) => {
                 const x = this.field.mul(omegaPower, this.friOffset);
@@ -198,6 +213,7 @@ export class Stark {
                 );
             });
         });
+        console.timeEnd("STARK.prove: Transition codewords");
 
         /**
          * Mt - transition multivariant polynomial
@@ -205,14 +221,18 @@ export class Stark {
          *
          * Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...) / Zb(x)
          */
+        console.time("STARK.prove: Transition quotient codewords");
         const transitionQuotientCodewords: bigint[][] = transitionCodewords.map(codeword => {
             return codeword.map((value, i) => this.field.div(value, transitionZerofierCodewords[i]));
         });
+        console.timeEnd("STARK.prove: Transition quotient codewords");
 
         const entropy = proofStream.proverFiatShamir();
 
         //Get degree bounds for respective transition quotients, these depend on the degree of the transition constraints
+        console.time("STARK.prove: Transition quotient degree bounds");
         const transitionQuotientDegreeBounds = this.transitionQuotientDegreeBounds(this.transitionDegreeBounds(transitionConstraints));
+        console.timeEnd("STARK.prove: Transition quotient degree bounds");
 
         if(runChecks) {
             const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
@@ -225,6 +245,7 @@ export class Stark {
         const friCodeword = Array<bigint>(this.omicronDomain.length);
 
         //Transition quotients
+        console.time("STARK.prove: Random combination - transition quotients");
         transitionQuotientCodewords.forEach((codeword, index) => {
 
             const buff = Buffer.alloc(6);
@@ -261,10 +282,12 @@ export class Stark {
             });
 
         });
+        console.timeEnd("STARK.prove: Random combination - transition quotients");
 
         let boundaryQuotientDegreeBounds = this.boundaryQuotientDegreeBounds(boundaryZerofiers);
 
         //Boundary quotients
+        console.time("STARK.prove: Random combination - boundary quotients / traces");
         boundaryQuotientCodewords.forEach((codeword, index) => {
 
             let degreeBounds = boundaryQuotientDegreeBounds[index];
@@ -307,13 +330,17 @@ export class Stark {
             });
 
         });
+        console.timeEnd("STARK.prove: Random combination - boundary quotients / traces");
 
+        console.time("STARK.prove: FRI");
         const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
         const sampledPoints = fri.prove(friCodeword, proofStream, this.byteLength);
+        console.timeEnd("STARK.prove: FRI");
 
         //console.log("Fri points: ", sampledPoints);
 
         //Open up leaves on the boundary quotients/trace polys
+        console.time("STARK.prove: Point opening");
         boundaryQuotientAndTracePMTs.forEach(codeword => {
             sampledPoints.forEach(i => {
                 {
@@ -337,6 +364,7 @@ export class Stark {
                 }
             });
         });
+        console.timeEnd("STARK.prove: Point opening");
 
         // const point = sampledPoints[0];
         // console.log("Traces at "+point, traceCodewords.map(val => val[point]));
@@ -368,9 +396,11 @@ export class Stark {
 
         const entropy = proofStream.verifierFiatShamir();
 
+        console.time("STARK.verify: FRI");
         //Run FRI
         const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
         const friPoints = fri.verify(proofStream, this.byteLength);
+        console.timeEnd("STARK.verify: FRI");
 
         //console.log("Fri points: ", friPoints.map(point => point[0]));
 
@@ -378,6 +408,7 @@ export class Stark {
         const boundaryQuotientAndTracePoints: bigint[][] = Array<bigint[]>(this.numRegisters);
         const boundaryQuotientAndTracePointsPlus1: bigint[][] = Array<bigint[]>(this.numRegisters);
 
+        console.time("STARK.verify: boundaryQuotientAndTraceRoots load");
         boundaryQuotientAndTraceRoots.forEach((quotientOrTraceRoot, index) => {
 
             //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: ", index);
@@ -400,16 +431,60 @@ export class Stark {
             });
 
         });
+        console.timeEnd("STARK.verify: boundaryQuotientAndTraceRoots load");
 
+        console.time("STARK.verify: Boundary polys");
         const boundaryInterpolants = this.boundaryInterpolants(boundaryConditions);
         const boundaryZerofiers = this.boundaryZerofiers(boundaryConditions);
 
         const boundaryQuotientDegreeBounds = this.boundaryQuotientDegreeBounds(boundaryZerofiers);
+        console.timeEnd("STARK.verify: Boundary polys");
 
+        console.time("STARK.verify: Transition zerofier");
         const transitionZerofier = this.transitionZerofier();
+        console.timeEnd("STARK.verify: Transition zerofier");
 
         const transitionQuotientDegreeBounds = this.transitionQuotientDegreeBounds(this.transitionDegreeBounds(transitionConstraints));
 
+        const transitionQuotientWeights: [bigint, bigint][] = transitionQuotientDegreeBounds.map((val, index) => {
+            const buff = Buffer.alloc(6);
+            buff.writeUIntBE(index, 0, 6);
+
+            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                entropy,
+                buff,
+                Buffer.from("00", "hex")
+            ])).digest());
+
+            const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                entropy,
+                buff,
+                Buffer.from("01", "hex")
+            ])).digest());
+
+            return [alpha, beta];
+        });
+
+        const boundaryQuotientWeights: [bigint, bigint][] = boundaryQuotientDegreeBounds.map((val, index) => {
+            const buff = Buffer.alloc(6);
+            buff.writeUIntBE(index, 0, 6);
+
+            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                entropy,
+                buff,
+                Buffer.from("02", "hex")
+            ])).digest());
+
+            const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                entropy,
+                buff,
+                Buffer.from("03", "hex")
+            ])).digest());
+
+            return [alpha, beta];
+        });
+
+        console.time("STARK.verify: Probabilistic checks");
         //Check every point
         friPoints.forEach((friPoint, pointIndex) => {
 
@@ -477,26 +552,11 @@ export class Stark {
 
             transitionQuotientValues.forEach((transitionQuotientValue, transitionIndex) => {
 
-                const buff = Buffer.alloc(6);
-                buff.writeUIntBE(transitionIndex, 0, 6);
-
-                const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                    entropy,
-                    buff,
-                    Buffer.from("00", "hex")
-                ])).digest());
-
-                const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                    entropy,
-                    buff,
-                    Buffer.from("01", "hex")
-                ])).digest());
-
                 const addVal = this.field.mul(
                     this.field.add(
-                        alpha,
+                        transitionQuotientWeights[transitionIndex][0],
                         this.field.mul(
-                            beta,
+                            transitionQuotientWeights[transitionIndex][1],
                             this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[transitionIndex]-1))
                         )
                     ),
@@ -516,26 +576,11 @@ export class Stark {
                     degreeBounds = this.numCycles-1;
                 }
 
-                const buff = Buffer.alloc(6);
-                buff.writeUIntBE(boundaryIndex, 0, 6);
-
-                const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                    entropy,
-                    buff,
-                    Buffer.from("02", "hex")
-                ])).digest());
-
-                const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                    entropy,
-                    buff,
-                    Buffer.from("03", "hex")
-                ])).digest());
-
                 const addVal = this.field.mul(
                     this.field.add(
-                        alpha,
+                        boundaryQuotientWeights[boundaryIndex][0],
                         this.field.mul(
-                            beta,
+                            boundaryQuotientWeights[boundaryIndex][1],
                             this.field.exp(x, BigInt(this.omicronDomain.length-degreeBounds-1))
                         )
                     ),
@@ -555,6 +600,7 @@ export class Stark {
             if(friPoint[1]!==resultingPoint) throw new Error("Invalid combined FRI point, got: "+friPoint[1]+", expected: "+resultingPoint+"!");
 
         });
+        console.timeEnd("STARK.verify: Probabilistic checks");
 
     }
 

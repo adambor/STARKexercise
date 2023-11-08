@@ -213,7 +213,7 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = 4*1024;
+    const proveIndex = 541;
 
     let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel);
@@ -233,10 +233,32 @@ function checkStark() {
 
 }
 
+function testZerofier() {
+
+    const powersOfOmega = field.getPowerSeries(field.getRootOfUnity(1024), 1024);
+    const zerofierDomainLength = 235;
+    const zerofierDomain = powersOfOmega.toValues().slice(0, zerofierDomainLength);
+
+    console.time("Zerofier");
+    const originalZerofier = Polynomial.zerofier(zerofierDomain, field);
+    console.timeEnd("Zerofier");
+
+    console.time("Fast Zerofier");
+    const fastZerofier = Polynomial.fastZerofier(zerofierDomain, field);
+    console.timeEnd("Fast Zerofier");
+
+    console.log(originalZerofier.degree());
+    console.log(fastZerofier.degree());
+
+    console.log(originalZerofier.evaluate(87213123n));
+    console.log(fastZerofier.evaluate(87213123n));
+}
+
 //verifyRootsOfUnity();
 //verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
 checkStark();
+//testZerofier();
 
 //console.log("Serialized proof: ", serialized.toString("hex"));
