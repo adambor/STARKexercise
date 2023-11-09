@@ -213,7 +213,7 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = 541;
+    const proveIndex = 2504;
 
     let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel);
@@ -254,11 +254,28 @@ function testZerofier() {
     console.log(fastZerofier.evaluate(87213123n));
 }
 
+function testPower() {
+
+    const degree = 16;
+
+    const poly1 = new Polynomial(
+        field.newVectorFrom(Array.from({length: degree}, () => field.rand())),
+        field
+    );
+
+    const result = poly1.power(2n);
+
+    console.log("original: ", poly1.coefficients.toValues());
+    console.log("original: ", result.coefficients.toValues());
+
+}
+
 //verifyRootsOfUnity();
 //verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
 checkStark();
 //testZerofier();
+//testPower();
 
 //console.log("Serialized proof: ", serialized.toString("hex"));

@@ -44,7 +44,7 @@ export class Stark {
         this.field = field;
         this.byteLength = byteLength;
         this.expansionFactor = expansionFactor;
-        this.numColinearityChecks = securityLevel/2;
+        this.numColinearityChecks = Math.ceil(securityLevel/Math.log2(expansionFactor));
         this.numRegisters = numRegisters;
         this.numCycles = numCycles;
         this.transitionConstraintsDegree = transitionConstraintsDegree;
@@ -135,6 +135,7 @@ export class Stark {
         //Interpolate trace polys
         console.time("STARK.prove: Trace interpolation");
         const tracePolynomials: Polynomial[] = trace.map(values => Polynomial.interpolateDomain(executionDomain, values, this.field));
+        const tracePolynomialsPlus1: Polynomial[] = tracePolynomials.map(poly => poly.scale(this.omicron));
         console.timeEnd("STARK.prove: Trace interpolation");
 
         console.time("STARK.prove: Boundary polys");
@@ -145,22 +146,22 @@ export class Stark {
         //Obtain trace polynomial codewords
         console.time("STARK.prove: Trace codewords");
         const traceCodewords: bigint[][] = tracePolynomials.map(poly => poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
-        const traceCodewordsPlus1: bigint[][] = tracePolynomials.map(poly => poly.scale(this.omicron).evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
+        //const traceCodewordsPlus1: bigint[][] = tracePolynomials.map(poly => poly.scale(this.omicron).evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
         console.timeEnd("STARK.prove: Trace codewords");
 
         //Boundary zerofier and interpolants codewords
-        console.time("STARK.prove: Boundary codewords");
-        const boundaryInterpolantsCodewords: bigint[][] = boundaryInterpolants.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
-        const boundaryZerofiersCodewords: bigint[][] = boundaryZerofiers.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
-        console.timeEnd("STARK.prove: Boundary codewords");
+        // console.time("STARK.prove: Boundary codewords");
+        // const boundaryInterpolantsCodewords: bigint[][] = boundaryInterpolants.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
+        // const boundaryZerofiersCodewords: bigint[][] = boundaryZerofiers.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
+        // console.timeEnd("STARK.prove: Boundary codewords");
 
         //Obtain quotient codewords
         console.time("STARK.prove: Boundary quotient codewords");
-        const boundaryQuotientCodewords: bigint[][] = traceCodewords.map((codeword, registerIndex) => {
-            const boundaryInterpolantCodeword = boundaryInterpolantsCodewords[registerIndex];
-            const boundaryZerofiersCodeword = boundaryZerofiersCodewords[registerIndex];
+        const boundaryQuotientPolys: Polynomial[] = tracePolynomials.map((tracePolynomial, registerIndex) => {
+            // const boundaryInterpolantCodeword = boundaryInterpolantsCodewords[registerIndex];
+            // const boundaryZerofiersCodeword = boundaryZerofiersCodewords[registerIndex];
 
-            if(boundaryInterpolantCodeword==null) return null;
+            if (boundaryInterpolants[registerIndex] == null) return null;
 
             /**
              * f - trace
@@ -169,12 +170,17 @@ export class Stark {
              *
              * (f(x)-B(x)) / Zb(x)
              */
-            return codeword.map((value, index) => {
-                return this.field.div(
-                    this.field.sub(value, boundaryInterpolantCodeword[index]),
-                    boundaryZerofiersCodeword[index]
-                )
-            });
+            return tracePolynomial.sub(boundaryInterpolants[registerIndex]).divide(boundaryZerofiers[registerIndex]);
+
+            // return codeword.map((value, index) => {
+            //     return this.field.div(
+            //         this.field.sub(value, boundaryInterpolantCodeword[index]),
+            //         boundaryZerofiersCodeword[index]
+            //     )
+            // });
+        });
+        const boundaryQuotientCodewords: bigint[][] = boundaryQuotientPolys.map((boundaryQuotientPoly) => {
+            return boundaryQuotientPoly==null ? null : boundaryQuotientPoly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
         });
         console.timeEnd("STARK.prove: Boundary quotient codewords");
 
@@ -197,23 +203,24 @@ export class Stark {
 
         //Transition zerofier Zt - value of 0 on point 0...this.numCycles-1
         console.time("STARK.prove: Transition zerofier");
-        const transitionZerofierCodewords = this.transitionZerofier().evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
+        const transitionZerofier = this.transitionZerofier();
+        // const transitionZerofierCodewords = transitionZerofier.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
         console.timeEnd("STARK.prove: Transition zerofier");
 
         //Evaluate transition codewords - evaluation of multivariant polynomials Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...)
-        console.time("STARK.prove: Transition codewords");
-        const transitionCodewords: bigint[][] = transitionConstraints.map(transitionPolynomial => {
-            return this.omegaDomain.map((omegaPower, i) => {
-                const x = this.field.mul(omegaPower, this.friOffset);
-                return transitionPolynomial.evaluate(
-                    [x].concat(
-                        traceCodewords.map(codeword => codeword[i]),
-                        traceCodewordsPlus1.map(codeword => codeword[i])
-                    )
-                );
-            });
-        });
-        console.timeEnd("STARK.prove: Transition codewords");
+        // console.time("STARK.prove: Transition codewords");
+        // const transitionCodewords: bigint[][] = transitionConstraints.map(transitionPolynomial => {
+        //     return this.omegaDomain.map((omegaPower, i) => {
+        //         const x = this.field.mul(omegaPower, this.friOffset);
+        //         return transitionPolynomial.evaluate(
+        //             [x].concat(
+        //                 traceCodewords.map(codeword => codeword[i]),
+        //                 traceCodewordsPlus1.map(codeword => codeword[i])
+        //             )
+        //         );
+        //     });
+        // });
+        // console.timeEnd("STARK.prove: Transition codewords");
 
         /**
          * Mt - transition multivariant polynomial
@@ -222,9 +229,19 @@ export class Stark {
          * Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...) / Zb(x)
          */
         console.time("STARK.prove: Transition quotient codewords");
-        const transitionQuotientCodewords: bigint[][] = transitionCodewords.map(codeword => {
-            return codeword.map((value, i) => this.field.div(value, transitionZerofierCodewords[i]));
+        // const transitionQuotientCodewords: bigint[][] = transitionCodewords.map(codeword => {
+        //     return codeword.map((value, i) => this.field.div(value, transitionZerofierCodewords[i]));
+        // });
+        const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
+        const transitionQuotientPolys: Polynomial[] = transitionConstraints.map(transitionPolynomial => {
+            return transitionPolynomial.evaluateSymbolic([xOnlyPolynomial].concat(
+                tracePolynomials,
+                tracePolynomialsPlus1
+            )).divide(transitionZerofier);
         });
+        // const transitionQuotientCodewords: bigint[][] = transitionQuotientPolys.map(transitionQuotientPolynomial => {
+        //     return transitionQuotientPolynomial.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
+        // });
         console.timeEnd("STARK.prove: Transition quotient codewords");
 
         const entropy = proofStream.proverFiatShamir();
@@ -235,18 +252,55 @@ export class Stark {
         console.timeEnd("STARK.prove: Transition quotient degree bounds");
 
         if(runChecks) {
-            const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
+            //const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
             const transitionQuotientPolyDegrees = transitionQuotientPolys.map(poly => poly==null ? null : poly.degree());
             console.log("Boundary quotient poly degrees: ", transitionQuotientPolyDegrees);
             console.log("Expected boundary quotient poly degrees: ", transitionQuotientDegreeBounds);
         }
 
         //Construct FRI codeword of random weighted combinations of polys to be proven.
-        const friCodeword = Array<bigint>(this.omicronDomain.length);
+        //const friCodeword = Array<bigint>(this.omicronDomain.length);
+        let polynomialAccumulator = new Polynomial(this.field.newVectorFrom([0n]), this.field);
 
         //Transition quotients
         console.time("STARK.prove: Random combination - transition quotients");
-        transitionQuotientCodewords.forEach((codeword, index) => {
+        // transitionQuotientCodewords.forEach((codeword, index) => {
+        //
+        //     const buff = Buffer.alloc(6);
+        //     buff.writeUIntBE(index, 0, 6);
+        //
+        //     const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("00", "hex")
+        //     ])).digest());
+        //
+        //     const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("01", "hex")
+        //     ])).digest());
+        //
+        //     codeword.forEach((fX, i) => {
+        //         if(friCodeword[i]==null) friCodeword[i] = 0n;
+        //
+        //         const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
+        //         const addVal = this.field.mul(
+        //             this.field.add(
+        //                 alpha,
+        //                 this.field.mul(
+        //                     beta,
+        //                     this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1))
+        //                 )
+        //             ),
+        //             fX
+        //         );
+        //
+        //         friCodeword[i] = this.field.add(friCodeword[i], addVal);
+        //     });
+        //
+        // });
+        transitionQuotientPolys.forEach((quotientPolynomial, index) => {
 
             const buff = Buffer.alloc(6);
             buff.writeUIntBE(index, 0, 6);
@@ -263,23 +317,33 @@ export class Stark {
                 Buffer.from("01", "hex")
             ])).digest());
 
-            codeword.forEach((fX, i) => {
-                if(friCodeword[i]==null) friCodeword[i] = 0n;
+            const xPower = this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1;
+            const multiplicantCoefficients = [];
+            multiplicantCoefficients[xPower] = beta;
+            multiplicantCoefficients.fill(0n, 0, xPower);
+            multiplicantCoefficients[0] = alpha;
 
-                const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
-                const addVal = this.field.mul(
-                    this.field.add(
-                        alpha,
-                        this.field.mul(
-                            beta,
-                            this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1))
-                        )
-                    ),
-                    fX
-                );
+            const resultPolynomial = quotientPolynomial.fastMul(new Polynomial(this.field.newVectorFrom(multiplicantCoefficients), this.field));
 
-                friCodeword[i] = this.field.add(friCodeword[i], addVal);
-            });
+            polynomialAccumulator = polynomialAccumulator.add(resultPolynomial);
+
+            // codeword.forEach((fX, i) => {
+            //     if(friCodeword[i]==null) friCodeword[i] = 0n;
+            //
+            //     const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
+            //     const addVal = this.field.mul(
+            //         this.field.add(
+            //             alpha,
+            //             this.field.mul(
+            //                 beta,
+            //                 this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1))
+            //             )
+            //         ),
+            //         fX
+            //     );
+            //
+            //     friCodeword[i] = this.field.add(friCodeword[i], addVal);
+            // });
 
         });
         console.timeEnd("STARK.prove: Random combination - transition quotients");
@@ -288,11 +352,53 @@ export class Stark {
 
         //Boundary quotients
         console.time("STARK.prove: Random combination - boundary quotients / traces");
-        boundaryQuotientCodewords.forEach((codeword, index) => {
+        // boundaryQuotientCodewords.forEach((codeword, index) => {
+        //
+        //     let degreeBounds = boundaryQuotientDegreeBounds[index];
+        //     if(codeword==null) {
+        //         codeword = traceCodewords[index];
+        //         degreeBounds = this.numCycles-1;
+        //     }
+        //
+        //     const buff = Buffer.alloc(6);
+        //     buff.writeUIntBE(index, 0, 6);
+        //
+        //     const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("02", "hex")
+        //     ])).digest());
+        //
+        //     const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("03", "hex")
+        //     ])).digest());
+        //
+        //     codeword.forEach((fX, i) => {
+        //         if(friCodeword[i]==null) friCodeword[i] = 0n;
+        //
+        //         const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
+        //         const addVal = this.field.mul(
+        //             this.field.add(
+        //                 alpha,
+        //                 this.field.mul(
+        //                     beta,
+        //                     this.field.exp(x, BigInt(this.omicronDomain.length-degreeBounds-1))
+        //                 )
+        //             ),
+        //             fX
+        //         );
+        //
+        //         friCodeword[i] = this.field.add(friCodeword[i], addVal);
+        //     });
+        //
+        // });
+        boundaryQuotientPolys.forEach((boundaryQuotient, index) => {
 
             let degreeBounds = boundaryQuotientDegreeBounds[index];
-            if(codeword==null) {
-                codeword = traceCodewords[index];
+            if(boundaryQuotient==null) {
+                boundaryQuotient = tracePolynomials[index];
                 degreeBounds = this.numCycles-1;
             }
 
@@ -311,30 +417,41 @@ export class Stark {
                 Buffer.from("03", "hex")
             ])).digest());
 
-            codeword.forEach((fX, i) => {
-                if(friCodeword[i]==null) friCodeword[i] = 0n;
 
-                const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
-                const addVal = this.field.mul(
-                    this.field.add(
-                        alpha,
-                        this.field.mul(
-                            beta,
-                            this.field.exp(x, BigInt(this.omicronDomain.length-degreeBounds-1))
-                        )
-                    ),
-                    fX
-                );
+            const xPower = this.omicronDomain.length-degreeBounds-1;
+            const multiplicantCoefficients = [];
+            multiplicantCoefficients[xPower] = beta;
+            multiplicantCoefficients.fill(0n, 0, xPower);
+            multiplicantCoefficients[0] = alpha;
 
-                friCodeword[i] = this.field.add(friCodeword[i], addVal);
-            });
+            const resultPolynomial = boundaryQuotient.fastMul(new Polynomial(this.field.newVectorFrom(multiplicantCoefficients), this.field));
+
+            polynomialAccumulator = polynomialAccumulator.add(resultPolynomial);
+
+            // codeword.forEach((fX, i) => {
+            //     if(friCodeword[i]==null) friCodeword[i] = 0n;
+            //
+            //     const x = this.field.mul(this.friOffset, this.omegaDomain[i]);
+            //     const addVal = this.field.mul(
+            //         this.field.add(
+            //             alpha,
+            //             this.field.mul(
+            //                 beta,
+            //                 this.field.exp(x, BigInt(this.omicronDomain.length-degreeBounds-1))
+            //             )
+            //         ),
+            //         fX
+            //     );
+            //
+            //     friCodeword[i] = this.field.add(friCodeword[i], addVal);
+            // });
 
         });
         console.timeEnd("STARK.prove: Random combination - boundary quotients / traces");
 
         console.time("STARK.prove: FRI");
         const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
-        const sampledPoints = fri.prove(friCodeword, proofStream, this.byteLength);
+        const sampledPoints = fri.prove(polynomialAccumulator.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset), proofStream, this.byteLength);
         console.timeEnd("STARK.prove: FRI");
 
         //console.log("Fri points: ", sampledPoints);

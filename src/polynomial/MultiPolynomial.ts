@@ -145,6 +145,32 @@ export class MultiPolynomial {
         return acc;
     }
 
+    _evaluateSymbolic(point: Polynomial[]): Polynomial {
+
+        let acc: Polynom = null;
+
+        this.coefficients.forEach((value, key) => {
+
+            let resultPoly: Polynom = this.field.newVectorFrom([value]);
+
+            for(let i=0;i<key.length;i++) {
+                if(key[i]!==0n) {
+                    if(key[i]!==0n) resultPoly = this.field.mulPolys(resultPoly, point[i].power(key[i]).coefficients);
+                }
+            }
+
+            if(acc==null) {
+                acc = resultPoly;
+            } else {
+                acc = this.field.addPolys(acc, resultPoly);
+            }
+
+        });
+
+        return new Polynomial(acc, this.field);
+
+    }
+
     evaluateSymbolic(point: Polynomial[]): Polynomial {
 
         let acc: Polynom;
@@ -157,6 +183,7 @@ export class MultiPolynomial {
 
             for(let i=0;i<key.length;i++) {
                 if(key[i]!==0n) {
+                    if(polyPowers[i]==null) polyPowers[i] = [];
                     let expPoly = polyPowers[i][Number(key[i])];
                     if(expPoly==null) {
                         expPoly = point[i].power(key[i]);

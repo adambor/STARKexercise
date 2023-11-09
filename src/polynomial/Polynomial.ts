@@ -107,6 +107,43 @@ export class Polynomial {
         return new Polynomial(this.field.divPolys(this.coefficients, b.coefficients), this.field);
     }
 
+    fastDivide(b: Polynomial, offset: bigint): Polynomial {
+
+        const degree1 = this.degree();
+        const degree2 = b.degree();
+
+        const degreeSum = Math.max(degree1, degree2);
+
+        if(degreeSum<8) {
+            return this.divide(b);
+        }
+
+        const evaluationDomain = getNearestPowerOf2(degreeSum);
+
+        const omega = this.field.getRootOfUnity(evaluationDomain);
+        const powersOfOmega = this.field.getPowerSeries(omega, evaluationDomain);
+
+        const newVector1 = [];
+        const newVector2 = [];
+
+        let currPower = 1n;
+        for(let i=0;i<Math.max(this.coefficients.length, b.coefficients.length);i++) {
+            if(i<this.coefficients.length) newVector1[i] = this.field.mul(this.coefficients.getValue(i), currPower);
+            if(i<b.coefficients.length) newVector2[i] = this.field.mul(b.coefficients.getValue(i), currPower);
+            currPower = this.field.mul(currPower, offset);
+        }
+
+        const codeword1 = this.field.evalPolyAtRoots(this.field.newVectorFrom(newVector1), powersOfOmega).toValues();
+        const codeword2 = this.field.evalPolyAtRoots(this.field.newVectorFrom(newVector2), powersOfOmega).toValues();
+
+        const resultCodeword = codeword1.map((value, index) => {
+            return this.field.div(value, codeword2[index]);
+        });
+
+        return Polynomial.interpolateAtRootsWithOffset(powersOfOmega.toValues(), resultCodeword, offset, this.field);
+
+    }
+
     scale(b: bigint): Polynomial {
         let currPower = 1n;
         const scaledCoefficients = this.coefficients.toValues().map(val => {
@@ -125,7 +162,7 @@ export class Polynomial {
         let acc = this.field.newVectorFrom([1n]);
 
         const bitLength = b.toString(2).length;
-        for(let i=bitLength-1;i--;i>=0) {
+        for(let i=bitLength-1; i>=0; i--) {
             acc = this.field.mulPolys(acc, acc);
             if(((b>>BigInt(i)) & 1n) === 1n) {
                 acc = this.field.mulPolys(acc, this.coefficients);
