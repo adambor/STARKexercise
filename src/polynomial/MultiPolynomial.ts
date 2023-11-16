@@ -49,6 +49,17 @@ export class MultiPolynomial {
 
     }
 
+    mulByConstant(b: bigint) {
+
+        const coefficients = new Map<bigint[], bigint>();
+        for(let val of this.coefficients.entries()) {
+            coefficients.set(val[0], this.field.mul(val[1], b));
+        }
+
+        return new MultiPolynomial(coefficients, this.field);
+
+    }
+
     mul(b: MultiPolynomial): MultiPolynomial {
 
         const numVariables = this.numVariables+b.numVariables;
@@ -56,7 +67,9 @@ export class MultiPolynomial {
 
         this.coefficients.forEach((v0, k0) => {
             b.coefficients.forEach((v1, k1) => {
-                const exponent = new Array<bigint>(numVariables).fill(0n);
+                const exponent = new Array<bigint>(numVariables);
+                exponent[numVariables-1] = 0n;
+                exponent.fill(0n, 0, numVariables);
                 k0.forEach((value, index) => {
                     exponent[index] = this.field.add(exponent[index], value);
                 });
@@ -220,9 +233,12 @@ export class MultiPolynomial {
 
     static lift(poly: Polynomial, variableIndex: number): MultiPolynomial {
         const mCoefficients: [bigint[], bigint][] = [];
+        const arr = Array(variableIndex);
+        arr[variableIndex-2] = 0n;
+        arr.fill(0n, 0, variableIndex-1);
         for(let i=0;i<poly.coefficients.length;i++) {
             mCoefficients.push([
-                Array(variableIndex).fill(0n).concat([i]),
+                arr.concat([BigInt(i)]),
                 poly.coefficients.getValue(i)
             ]);
         }

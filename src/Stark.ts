@@ -134,7 +134,13 @@ export class Stark {
 
         //Interpolate trace polys
         console.time("STARK.prove: Trace interpolation");
-        const tracePolynomials: Polynomial[] = trace.map(values => Polynomial.interpolateDomain(executionDomain, values, this.field));
+        const zerofierCache = {};
+        const tracePolynomials: Polynomial[] = trace.map(values => {
+            const times = [0,0,0,0,0];
+            const result = Polynomial.fastFFTInterpolate(this.omicronDomain, values, this.field, null, times, zerofierCache);
+            console.log("Times: ", times);
+            return result;
+        });
         const tracePolynomialsPlus1: Polynomial[] = tracePolynomials.map(poly => poly.scale(this.omicron));
         console.timeEnd("STARK.prove: Trace interpolation");
 

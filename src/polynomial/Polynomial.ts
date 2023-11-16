@@ -1,5 +1,11 @@
 import {FiniteField, Polynom, Vector} from "@guildofweavers/galois";
 
+export function getNanos(): number {
+    const hrTime = process.hrtime();
+
+    return hrTime[0] * 1000000000 + hrTime[1];
+}
+
 function getNearestPowerOf2(degree: number) {
     let i = 1;
     while(i<degree+1) {
@@ -7,6 +13,17 @@ function getNearestPowerOf2(degree: number) {
     }
     return i;
 }
+
+type ZerofierCache = {
+    even?: {
+        poly?: Polynom,
+        children?: ZerofierCache
+    },
+    odd?: {
+        poly?: Polynom,
+        children?: ZerofierCache
+    },
+};
 
 export class Polynomial {
 
@@ -20,7 +37,7 @@ export class Polynomial {
 
     degree(): number {
         for(let i=this.coefficients.length-1;i>=0;i--) {
-            if(this.coefficients.getValue(i)>0n) return i;
+            if(this.coefficients.getValue(i)!==0n) return i;
         }
         return -1;
     }
@@ -107,6 +124,80 @@ export class Polynomial {
         return new Polynomial(this.field.divPolys(this.coefficients, b.coefficients), this.field);
     }
 
+    mod(b: Polynomial, times?: number[]): Polynomial {
+
+        if(b.degree()===-1) return null;
+
+        const aDegree = this.degree();
+        const bDegree = b.degree();
+        if(aDegree<bDegree) return this;
+
+        let remainder: Polynomial = this;
+        // const quotientCoefficients = [];
+        // quotientCoefficients[aDegree-bDegree] = 0;
+        // quotientCoefficients.fill(0n, 0, aDegree-bDegree+1)
+        // console.log("Quotient coefficients: ", quotientCoefficients);
+
+        for(let i=0;i<aDegree-bDegree+1;i++) {
+            const remDegree = remainder.degree();
+            if(remDegree < bDegree) break;
+
+            let startTime = getNanos();
+            const coefficient = this.field.div(remainder.leadingCoefficient(), b.leadingCoefficient());
+            if(times!=null) times[0] += getNanos()-startTime;
+            const shift = remDegree - bDegree;
+
+            // console.log("arr: ", arr);
+            // startTime = getNanos();
+            // const subtracteeCofficients = []; subtracteeCofficients[shift] = 0n; subtracteeCofficients.fill(0n, 0, shift);
+            // for(let i=0;i<b.coefficients.length;i++) {
+            //     subtracteeCofficients[i+shift] = b.coefficients.getValue(i) * coefficient;
+            // }
+            // const subtractee = new Polynomial(this.field.newVectorFrom(subtracteeCofficients), this.field);
+            // if(times!=null) times[1] += getNanos()-startTime;
+
+            // quotientCoefficients[shift] = coefficient;
+            startTime = getNanos();
+            // remainder = remainder.sub(subtractee);
+            remainder = new Polynomial(this.field.newVectorFrom(remainder.coefficients.toValues().map((val, index) => {
+                if(index<shift || index>=b.coefficients.length+shift) {
+                    return val;
+                }
+                return this.field.sub(val, this.field.mul(b.coefficients.getValue(index-shift), coefficient));
+            })), this.field);
+            if(times!=null) times[2] += getNanos()-startTime;
+        }
+
+        return remainder;
+
+    }
+
+    _mod(b: Polynomial): Polynomial {
+
+        const aValues = this.coefficients.toValues().slice();
+        const bValues = b.coefficients.toValues();
+
+        let apos = this.degree();
+        let bpos = b.degree();
+        if (apos < bpos) {
+            throw new Error('Cannot divide by polynomial of higher order');
+        }
+
+        let diff = apos - bpos;
+        let rValues = new Array<bigint>(diff + 1);
+
+        for (let p = rValues.length - 1; diff >= 0; diff--, apos--, p--) {
+            let quot = this.field.div(aValues[apos], bValues[bpos]);
+            rValues[p] = quot;
+            for (let i = bpos; i >= 0; i--) {
+                aValues[diff + i] = this.field.sub(aValues[diff + i], bValues[i] * quot);
+            }
+        }
+
+        return new Polynomial(this.field.newVectorFrom(aValues), this.field);
+
+    }
+
     fastDivide(b: Polynomial, offset: bigint): Polynomial {
 
         const degree1 = this.degree();
@@ -176,8 +267,72 @@ export class Polynomial {
         return this.field.evalPolyAt(this.coefficients, point);
     }
 
+    fastEvaluate(point: bigint, poweringMap: bigint[], offset?: number) {
+
+        const mapLength = poweringMap.length;
+
+        let sum = 0n;
+        for(let i=0;i<this.coefficients.length;i++) {
+            sum = this.field.add(sum, this.field.mul(this.coefficients.getValue(i), poweringMap[(offset*i) % mapLength]));
+        }
+
+        return sum;
+
+    }
+
+    evaluateDomainWithPoweringMap(points: bigint[], poweringMap: bigint[]): bigint[] {
+        return points.map((point, index) => this.fastEvaluate(point, poweringMap, index));
+    }
+
     evaluateDomain(points: bigint[]): bigint[] {
         return points.map(point => this.field.evalPolyAt(this.coefficients, point));
+    }
+
+    fastEvaluateDomain(points: bigint[], offset: bigint, times?: number[]): bigint[] {
+
+        // if(points.length===0) {
+        //     return [];
+        // } else if(points.length===1) {
+        //     return [this.evaluate(points[0])];
+        // }
+
+        if(points.length<=1) {
+            return this.evaluateDomain(points);
+        }
+
+        const half = Math.floor(points.length/2);
+
+        const leftDomain = points.slice(0, half);
+        const rightDomain = points.slice(half);
+
+        let startTime = Date.now();
+        const leftZerofier = Polynomial.fastZerofier(leftDomain, this.field);
+        const rightZerofier = Polynomial.fastZerofier(rightDomain, this.field);
+        if(times!=null) times[3] += Date.now() - startTime;
+
+        startTime = Date.now();
+        let leftRemainder: Polynomial = this;
+        if(leftDomain.length<=this.degree()) {
+            // const leftQuotient = this.divide(leftZerofier);
+            // leftRemainder = this.sub(leftQuotient.fastMul(leftZerofier));
+            leftRemainder = this.mod(leftZerofier, times);
+        }
+
+        let rightRemainder: Polynomial = this;
+        if(rightDomain.length<=this.degree()) {
+            // const rightQuotient = this.divide(rightZerofier);
+            // rightRemainder = this.sub(rightQuotient.fastMul(rightZerofier));
+            rightRemainder = this.mod(rightZerofier, times);
+        }
+        if(times!=null) times[4] += Date.now() - startTime;
+
+        //startTime = Date.now();
+        const left = leftRemainder.fastEvaluateDomain(leftDomain, offset, times);
+        const right = rightRemainder.fastEvaluateDomain(rightDomain, offset, times);
+        //if(times!=null) times[2] += Date.now() - startTime;
+
+        return left.concat(right);
+
     }
 
     evaluateAtRoots(points: bigint[]): bigint[] {
@@ -201,6 +356,129 @@ export class Polynomial {
         return new Polynomial(field.interpolate(field.newVectorFrom(domain), field.newVectorFrom(values)), field);
     }
 
+    static _fastFFTInterpolate(subgroup: bigint[], values: bigint[], field: FiniteField, offset?: number, times?: number[]) {
+
+        if(offset==null) offset = 0;
+
+        if(values.length==0) {
+            return new Polynomial(field.newVectorFrom([]), field);
+        } else if(values.length==1) {
+            return new Polynomial(field.newVectorFrom([values[0]]), field);
+        }
+
+        const half = Math.floor(values.length / 2);
+
+        const leftDomain = subgroup.slice(offset, offset+half);
+        const rightDomain = subgroup.slice(offset+half, offset+values.length);
+
+        let startTime = Date.now();
+        const leftZerofier = Polynomial.fastZerofier(leftDomain, field);
+        const rightZerofier = Polynomial.fastZerofier(rightDomain, field);
+        if(times!=null) times[0] += Date.now()-startTime;
+
+        startTime = Date.now();
+        const leftOffset = rightZerofier.evaluateAtRoots(subgroup).slice(offset, offset+half);
+        const rightOffset = leftZerofier.evaluateAtRoots(subgroup).slice(offset+half, offset+values.length);
+        if(times!=null) times[1] += Date.now()-startTime;
+
+        const leftInterpolant = Polynomial._fastFFTInterpolate(subgroup, values.slice(0, half).map((val, index) => field.div(val, leftOffset[index])), field, offset, times);
+        const rightInterpolant = Polynomial._fastFFTInterpolate(subgroup, values.slice(half).map((val, index) => field.div(val, rightOffset[index])), field, offset+half, times);
+
+        startTime = Date.now();
+        const result = leftInterpolant.mul(rightZerofier).add(rightInterpolant.mul(leftZerofier));
+        if(times!=null) times[2] += Date.now()-startTime;
+
+        return result;
+
+    }
+
+    static fastMulAndAdd(a: Polynomial, b: Polynomial, c: Polynomial, d: Polynomial, subgroup: bigint[], field: FiniteField): Polynomial {
+
+        const codewordA = a.evaluateAtRoots(subgroup);
+        const codewordB = b.evaluateAtRoots(subgroup);
+        const codewordC = c.evaluateAtRoots(subgroup);
+        const codewordD = d.evaluateAtRoots(subgroup);
+
+        const codewordResult = codewordA.map((_, i) => {
+            return field.add(
+                field.mul(codewordA[i], codewordB[i]),
+                field.mul(codewordC[i], codewordD[i])
+            )
+        });
+
+        return Polynomial.interpolateAtRoots(subgroup, codewordResult, field);
+
+    }
+
+    static FFT_THRESHOLD = 32;
+
+    static fastFFTInterpolate(subgroup: bigint[], values: bigint[], field: FiniteField, offset?: bigint, times?: number[], cache?: ZerofierCache) {
+
+        // console.log("FTT Interpolate: ", values.length);
+
+        if(offset==null) offset = 1n;
+
+        let startTime = Date.now();
+        if(values.length<=Polynomial.FFT_THRESHOLD) {
+            const result = Polynomial.interpolateDomain(subgroup.slice(0, values.length).map(val => field.mul(val, offset)), values, field);
+            if(times!=null) times[0] += Date.now()-startTime;
+            return result;
+        }
+
+        startTime = Date.now();
+        const omega = subgroup[1];
+
+        const half = Math.ceil(values.length / 2);
+
+        const halfSubgroup = subgroup.filter((val, index) => index%2===0);
+        const evenDomain = halfSubgroup.slice(0, half).map(val => field.mul(val, offset));
+        const oddDomain = subgroup.filter((val, index) => index%2===1).slice(0, values.length-half).map(val => field.mul(val, offset));
+        if(times!=null) times[1] += Date.now()-startTime;
+
+        // console.log("Half subgroup size: ", halfSubgroup.length);
+
+        startTime = Date.now();
+        let _evenZerofier: Polynom;
+        let _oddZerofier: Polynom;
+        if(cache==null || cache.even==null || cache.odd==null) {
+            if(cache==null) cache = {};
+            cache.odd =  {children: {}};
+            cache.even = {children: {}};
+            _evenZerofier = Polynomial.fastRecursiveZerofierPolynom(evenDomain, field, halfSubgroup.length, cache.even.children, Polynomial.FFT_THRESHOLD);
+            _oddZerofier = Polynomial.fastRecursiveZerofierPolynom(oddDomain, field, halfSubgroup.length, cache.odd.children, Polynomial.FFT_THRESHOLD);
+            cache.even.poly = _evenZerofier;
+            cache.odd.poly = _oddZerofier;
+        } else {
+            _evenZerofier = cache.even.poly;
+            _oddZerofier = cache.odd.poly;
+        }
+        const evenZerofier = new Polynomial(_evenZerofier, field);
+        const oddZerofier = new Polynomial(_oddZerofier, field);
+        if(times!=null) times[2] += Date.now()-startTime;
+
+        // console.log("Even zerofier degree: ", evenZerofier.degree());
+        // console.log("Odd zerofier degree: ", oddZerofier.degree());
+
+        startTime = Date.now();
+        const evenOffset = oddZerofier.scale(offset).evaluateAtRoots(halfSubgroup).slice(0, half);
+        const oddOffset = evenZerofier.scale(field.mul(omega, offset)).evaluateAtRoots(halfSubgroup).slice(0, values.length-half);
+        if(times!=null) times[3] += Date.now()-startTime;
+
+        const evenValues = values.filter((_, index) => index%2===0).map((val, index) => field.div(val, evenOffset[index]));
+        const oddValues = values.filter((_, index) => index%2===1).map((val, index) => field.div(val, oddOffset[index]));
+
+        const evenInterpolant = Polynomial.fastFFTInterpolate(halfSubgroup, evenValues, field, offset, times, cache.even.children);
+        const oddInterpolant = Polynomial.fastFFTInterpolate(halfSubgroup, oddValues, field, field.mul(omega, offset), times, cache.odd.children);
+
+        startTime = Date.now();
+        const result = Polynomial.fastMulAndAdd(evenInterpolant, oddZerofier, oddInterpolant, evenZerofier, subgroup, field);
+        // const result = evenInterpolant.fastMul(oddZerofier).add(oddInterpolant.fastMul(evenZerofier));
+        if(times!=null) times[4] += Date.now()-startTime;
+
+        return result;
+
+    }
+
     static interpolateAtRoots(domain: bigint[], values: bigint[], field: FiniteField): Polynomial {
         return new Polynomial(field.interpolateRoots(field.newVectorFrom(domain), field.newVectorFrom(values)), field);
     }
@@ -222,7 +500,7 @@ export class Polynomial {
         return new Polynomial(field.newVectorFrom(originalCoefficients), field);
     }
 
-    static zerofier(domain: bigint[], field: FiniteField): Polynomial {
+    static zerofierPolynom(domain: bigint[], field: FiniteField): Polynom {
 
         const x = field.newVectorFrom([0n, 1n]);
         let acc = field.newVectorFrom([1n]);
@@ -233,7 +511,32 @@ export class Polynomial {
             );
         }
 
-        return new Polynomial(acc, field);
+        return acc;
+    }
+
+    static zerofier(domain: bigint[], field: FiniteField): Polynomial {
+        return new Polynomial(this.zerofierPolynom(domain, field), field);
+    }
+
+    static fastRecursiveZerofierPolynom(domain: bigint[], field: FiniteField, order?: number, cache?: ZerofierCache, threshold?: number): Polynom {
+
+        if(domain.length<=threshold) return Polynomial.zerofierPolynom(domain, field);
+
+        if(order==null) order = getNearestPowerOf2(domain.length);
+
+        const evenPoints = domain.filter((_, index) => index%2===0);
+        const oddPoints = domain.filter((_, index) => index%2===1);
+
+        if(cache!=null) {
+            cache.even = {children: {}};
+            cache.odd = {children: {}};
+        }
+        const evenZerofier = Polynomial.fastRecursiveZerofierPolynom(evenPoints, field, order/2, cache.even.children, threshold);
+        const oddZerofier = Polynomial.fastRecursiveZerofierPolynom(oddPoints, field, order/2, cache.odd.children, threshold);
+        cache.even.poly = evenZerofier;
+        cache.odd.poly = oddZerofier;
+
+        return Polynomial.fastMulPolynom(evenZerofier, oddZerofier, field, order);
 
     }
 
@@ -327,7 +630,17 @@ export class Polynomial {
             degree *= 2;
         }
 
-        return new Polynomial(lastLayer[0], field);
+        const coefficients = lastLayer[0].toValues();
+
+        let leadingIndex = 0;
+        for(let i=coefficients.length-1;i>=0;i--) {
+            if(coefficients[i]!==0n) {
+                leadingIndex = i;
+                break;
+            }
+        }
+
+        return new Polynomial(field.newVectorFrom(coefficients.slice(0, leadingIndex+1)), field);
 
     }
 

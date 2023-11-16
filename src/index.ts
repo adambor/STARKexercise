@@ -7,8 +7,10 @@ import {ProofStream} from "./fiatshamir/ProofStream";
 import {PolynomialIOP} from "./polynomial/PolynomialIOP";
 import exp from "constants";
 import {Fibonacci} from "./programs/Fibonacci";
+import {RescuePrime} from "./programs/RescuePrime";
 
-const field = galois.createPrimeField(407n * 2n ** 119n + 1n, false);
+const fieldModulus = 407n * 2n ** 119n + 1n;
+const field = galois.createPrimeField(fieldModulus, false);
 const fieldGenerator = 85408008396924667383611388730472331217n;
 
 function verifyPolyMul() {
@@ -235,9 +237,9 @@ function checkStark() {
 
 function testZerofier() {
 
-    const powersOfOmega = field.getPowerSeries(field.getRootOfUnity(1024), 1024);
-    const zerofierDomainLength = 235;
-    const zerofierDomain = powersOfOmega.toValues().slice(0, zerofierDomainLength);
+    const powersOfOmega = field.getPowerSeries(field.getRootOfUnity(8*1024), 8*1024);
+    const zerofierDomainLength = 1875;
+    const zerofierDomain = powersOfOmega.toValues().slice(845, 845+zerofierDomainLength);
 
     console.time("Zerofier");
     const originalZerofier = Polynomial.zerofier(zerofierDomain, field);
@@ -252,6 +254,7 @@ function testZerofier() {
 
     console.log(originalZerofier.evaluate(87213123n));
     console.log(fastZerofier.evaluate(87213123n));
+
 }
 
 function testPower() {
@@ -270,12 +273,138 @@ function testPower() {
 
 }
 
+function testFastEvaluate() {
+
+    const degree = 8*845;
+    const powersOfOmega = field.getPowerSeries(field.getRootOfUnity(8*1024), 8*1024);
+
+    const values = Array.from({length: degree}, () => field.rand());
+
+    // console.time("Normal interpolate");
+    // const result1 = Polynomial.interpolateDomain(powersOfOmega.toValues().slice(0, degree), values, field);
+    // console.timeEnd("Normal interpolate");
+
+    console.time("FTT interpolate");
+    const times = [0, 0, 0, 0, 0];
+    const result2 = Polynomial.fastFFTInterpolate(powersOfOmega.toValues(), values, field, 1n, times);
+    console.timeEnd("FTT interpolate");
+
+    console.log("Times: ", times);
+
+    // console.log(result1.coefficients.toValues());
+    // console.log(result2.coefficients.toValues());
+
+    // console.log(result1.evaluate(9812412412n));
+    console.log(result2.evaluate(9812412412n));
+
+    // const evalDomainLength = 1024;
+    // const evalDomain = powersOfOmega.toValues().slice(0, evalDomainLength);
+    //
+    //
+    // console.time("Normal eval");
+    // const result1 = poly1.evaluateDomain(evalDomain);
+    // console.timeEnd("Normal eval");
+    //
+    // console.time("Normal eval");
+    // const result2 = poly1.evaluateDomainWithPoweringMap(evalDomain, powersOfOmega.toValues());
+    // console.timeEnd("Normal eval");
+    //
+    // console.time("Normal eval");
+    // const result3 = poly1.evaluateAtRoots(powersOfOmega.toValues()).slice(0, evalDomainLength);
+    // console.timeEnd("Normal eval");
+    //
+    // const times = [0, 0, 0, 0, 0];
+    // console.time("Fast eval");
+    // const result4 = poly1.fastEvaluateDomain(evalDomain, fieldGenerator, times);
+    // console.timeEnd("Fast eval");
+    //
+    // console.log("Times: ", times);
+
+    // console.log(result1.coefficients.toValues().slice(550));
+    // console.log(result2.coefficients.toValues().slice(1250));
+
+    // const zeroDomain = [1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n];
+    // const zerofier = Polynomial.zerofier(zeroDomain, field);
+    // console.log(zerofier.coefficients.toValues());
+    // console.log(zerofier.evaluateDomain(zeroDomain));
+    // console.log(result2);
+
+}
+
+function testAlternativeInterpolate() {
+
+    const degree = 1024;
+    const omega = field.getRootOfUnity(1024);
+    const powersOfOmega = field.getPowerSeries(omega, 1024);
+    const powersOfOmega2 = field.getPowerSeries(field.getRootOfUnity(512), 512);
+
+    const values = Array.from({length: degree}, () => field.rand());
+
+    const fastInterpolate = Polynomial.interpolateAtRoots(powersOfOmega2.toValues(), values.slice(0, 512), field);
+    const fastInterpolateScaled = fastInterpolate.scale(omega);
+
+    const normalInterpolate = Polynomial.interpolateDomain(powersOfOmega.toValues().slice(0, 512), values.slice(0, 512), field);
+
+    console.log("Normal: ", normalInterpolate);
+    console.log("Fast interpolate: ", fastInterpolateScaled);
+
+}
+
+function test() {
+
+    const omega = field.getRootOfUnity(8);
+    const powersOfOmega = field.getPowerSeries(omega, 8);
+
+    const omega2 = field.getRootOfUnity(4);
+    const powersOfOmega2 = field.getPowerSeries(omega2, 4);
+
+    const values = Array.from({length: 4}, () => field.rand());
+
+    const polynomial = new Polynomial(field.newVectorFrom(values), field);
+
+    const allValues = polynomial.evaluateAtRoots(powersOfOmega.toValues());
+
+    const evenTerms = polynomial.evaluateAtRoots(powersOfOmega2.toValues());
+    const oddTerms = polynomial.scale(omega).evaluateAtRoots(powersOfOmega2.toValues());
+
+    console.log(allValues);
+    console.log(evenTerms);
+    console.log(oddTerms);
+
+
+}
+
+function checkRescuePrime() {
+
+    const offset = fieldGenerator;
+    const expansionFactor = 4;
+    const securityLevel = 128;
+    const byteLength = 16;
+
+    const m = 2;
+    const alpha = 3n;
+    const rounds = 27;
+
+    let start = Date.now();
+    const rescueHash = new RescuePrime(field, fieldModulus, offset, byteLength, expansionFactor, securityLevel, m, alpha, rounds);
+
+    // console.log(rescueHash.getRoundConstants());
+    console.log(rescueHash.prove(9274142n));
+    console.log("Time: ", Date.now()-start);
+
+}
+
 //verifyRootsOfUnity();
 //verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
-checkStark();
+// checkStark();
 //testZerofier();
 //testPower();
+// testFastEvaluate();
+// testAlternativeInterpolate();
+checkRescuePrime()
+
+// test();
 
 //console.log("Serialized proof: ", serialized.toString("hex"));
