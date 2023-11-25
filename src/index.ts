@@ -8,6 +8,7 @@ import {PolynomialIOP} from "./polynomial/PolynomialIOP";
 import exp from "constants";
 import {Fibonacci} from "./programs/Fibonacci";
 import {RescuePrime} from "./programs/RescuePrime";
+import {MultiFri} from "./fri/MultiFri";
 
 const fieldModulus = 407n * 2n ** 119n + 1n;
 const field = galois.createPrimeField(fieldModulus, false);
@@ -43,24 +44,34 @@ function verifyFRI() {
     const expansionFactor  = 4;
     const domainLength = polynomialDegree*expansionFactor;
     const omega = field.getRootOfUnity(domainLength);
-    const fri = new Fri(fieldGenerator, omega, domainLength, field, expansionFactor, 64);
+    const fri = new MultiFri(fieldGenerator, omega, domainLength, field, expansionFactor, 64, 3);
 
     let startTime = Date.now();
-    const poly3 = new Polynomial(field.newVectorFrom(Array.from({length: polynomialDegree}, () => field.rand())), field);
+    const poly3 = new Polynomial(field.newVectorFrom(Array.from({length: polynomialDegree}, (val, index) => {
+        const buff = Buffer.alloc(4);
+        buff.writeUintBE(index,0, 4);
+        return field.prng(buff);
+    })), field);
 
-    const codeword = poly3.evaluateAtRoots(field.getPowerSeries(omega, domainLength).toValues().map(val => field.mul(fieldGenerator, val)));
-    console.log("Computed polynomial at domain: ", Date.now()-startTime);
+    // const codeword = poly3.evaluateAtRoots(field.getPowerSeries(omega, domainLength).toValues().map(val => field.mul(fieldGenerator, val)));
+    // console.log("Computed polynomial at domain: ", Date.now()-startTime);
+    //
+    // const proofStream = new ProofStream([]);
+    // fri.prove(codeword, proofStream, 16);
+    // console.log("Compute FRI: ", Date.now()-startTime);
 
     const proofStream = new ProofStream([]);
-    fri.prove(codeword, proofStream, 16);
+    fri.provePoly(poly3, proofStream, 16);
     console.log("Compute FRI: ", Date.now()-startTime);
 
     const serialized = proofStream.serialize();
     console.log("Serialized proof length: ", serialized.length);
 
     startTime = Date.now();
-    fri.verify(proofStream, 16);
+    const topCodewordPoints = fri.verify(proofStream, 16);
     console.log("Verify FRI: ", Date.now()-startTime);
+
+    // console.log(topCodewordPoints);
 
 }
 
@@ -394,8 +405,9 @@ function checkRescuePrime() {
 
 }
 
+verifyFRI();
 //verifyRootsOfUnity();
-//verifyDegreeIOP();
+// verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
 // checkStark();
@@ -403,7 +415,7 @@ function checkRescuePrime() {
 //testPower();
 // testFastEvaluate();
 // testAlternativeInterpolate();
-checkRescuePrime()
+// checkRescuePrime()
 
 // test();
 

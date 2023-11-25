@@ -686,4 +686,19 @@ export class Polynomial {
 
     }
 
+    splitAndFold(foldedSize: number, alpha: bigint) {
+
+        const newCoefficients: bigint[] = Array<bigint>(foldedSize);
+
+        for(let i=0;i<foldedSize;i++) {
+            newCoefficients[i] = this.field.add(
+                this.coefficients.getValue(2*i),
+                this.field.mul(alpha, this.coefficients.getValue((2*i)+1))
+            );
+        }
+
+        return new Polynomial(this.field.newVectorFrom(newCoefficients), this.field);
+
+    }
+
 }

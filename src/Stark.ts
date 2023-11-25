@@ -5,6 +5,8 @@ import {ProofStream} from "./fiatshamir/ProofStream";
 import {MerkleTree} from "./merkle/MerkleTree";
 import * as crypto from "crypto";
 import {Fri} from "./fri/Fri";
+import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
+import {MultiFri} from "./fri/MultiFri";
 
 export type BoundaryConditions = Map<number, {
     cycle: number,
@@ -29,6 +31,7 @@ export class Stark {
     omegaDomain: bigint[];
 
     friOffset: bigint;
+    foldingFactor: number;
 
     constructor(
         field: FiniteField,
@@ -38,7 +41,8 @@ export class Stark {
         numRegisters: number,
         numCycles: number,
         transitionConstraintsDegree: number,
-        friOffset: bigint
+        friOffset: bigint,
+        foldingFactor?: number
     ) {
 
         this.field = field;
@@ -61,6 +65,7 @@ export class Stark {
         this.omegaDomain = this.field.getPowerSeries(this.omega, omicronDomainLength*expansionFactor).toValues();
 
         this.friOffset = friOffset;
+        this.foldingFactor = foldingFactor || 1;
 
     }
 
@@ -149,12 +154,6 @@ export class Stark {
         const boundaryZerofiers = this.boundaryZerofiers(boundaryConditions);
         console.timeEnd("STARK.prove: Boundary polys");
 
-        //Obtain trace polynomial codewords
-        console.time("STARK.prove: Trace codewords");
-        const traceCodewords: bigint[][] = tracePolynomials.map(poly => poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
-        //const traceCodewordsPlus1: bigint[][] = tracePolynomials.map(poly => poly.scale(this.omicron).evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
-        console.timeEnd("STARK.prove: Trace codewords");
-
         //Boundary zerofier and interpolants codewords
         // console.time("STARK.prove: Boundary codewords");
         // const boundaryInterpolantsCodewords: bigint[][] = boundaryInterpolants.map(poly => poly==null ? null : poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset));
@@ -199,12 +198,21 @@ export class Stark {
 
         //Map boundary quotient codewords (use raw traces for registries without boundary constraints) to PMTs
         console.time("STARK.prove: Commit boundary quotient/trace");
-        const boundaryQuotientAndTracePMTs = boundaryQuotientCodewords.map((codeword, index) => codeword==null ? new MerkleTree(traceCodewords[index], this.byteLength) : new MerkleTree(codeword, this.byteLength));
+        const combinedCodewords: bigint[][] = Array<bigint[]>(this.omegaDomain.length);
+        boundaryQuotientPolys.forEach((poly, polyIndex) => {
+            if(poly==null) poly = tracePolynomials[polyIndex];
+            const codeword = poly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset)
+
+            codeword.forEach((e, index) => {
+                if(combinedCodewords[index]==null) combinedCodewords[index] = Array<bigint>(boundaryQuotientPolys.length);
+                combinedCodewords[index][polyIndex] = e;
+            })
+        });
+
+        const combinedPMT = new MultiMerkleTree(combinedCodewords, this.byteLength);
 
         //Commit boundary quotients & possibly traces
-        boundaryQuotientAndTracePMTs.forEach(pmt => {
-            proofStream.push(pmt.commit());
-        });
+        proofStream.push(combinedPMT.commit());
         console.timeEnd("STARK.prove: Commit boundary quotient/trace");
 
         //Transition zerofier Zt - value of 0 on point 0...this.numCycles-1
@@ -456,7 +464,7 @@ export class Stark {
         console.timeEnd("STARK.prove: Random combination - boundary quotients / traces");
 
         console.time("STARK.prove: FRI");
-        const fri = new Fri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks);
+        const fri = new MultiFri(this.friOffset, this.omega, this.omegaDomain.length, this.field, this.expansionFactor, this.numColinearityChecks, this.foldingFactor);
         const sampledPoints = fri.prove(polynomialAccumulator.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset), proofStream, this.byteLength);
         console.timeEnd("STARK.prove: FRI");
 
