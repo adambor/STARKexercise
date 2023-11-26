@@ -2,6 +2,7 @@ import {BoundaryConditions, Stark} from "../Stark";
 import {FiniteField} from "@guildofweavers/galois";
 import {ProofStream} from "../fiatshamir/ProofStream";
 import {MultiPolynomial} from "../polynomial/MultiPolynomial";
+import {FastStark} from "../FastStark";
 
 const TRANSITION_CONSTRAINTS = [
     new Map<bigint[], bigint>([
@@ -51,7 +52,7 @@ export class Fibonacci {
         proof: ProofStream
     } {
 
-        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
+        const stark = new FastStark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
 
         let vars = [1n, 1n];
 
@@ -88,7 +89,7 @@ export class Fibonacci {
 
     verify(index: number, evaluation: bigint, proof: ProofStream) {
 
-        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
+        const stark = new FastStark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
 
         const boundaryConditions: BoundaryConditions = new Map([
             [0, [{cycle: 0, value: 1n}, {cycle: index-2, value: evaluation}]],

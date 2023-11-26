@@ -227,7 +227,7 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = 2*2504;
+    const proveIndex = (256*1024)+1;
 
     let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel, 3);
@@ -417,18 +417,66 @@ function checkSubgroup() {
 
 }
 
+function fastInterpolate0and1() {
+    console.time("Fill array");
+    const groupOrder = 128*1024;
+    const values: bigint[] = [];
+    for(let i=0;i<groupOrder;i++) {
+        if(i<123*1024) {
+            values[i] = 1n;
+        } else {
+            values[i] = 0n;
+        }
+    }
+    const generator = field.getRootOfUnity(groupOrder);
+    console.timeEnd("Fill array");
+
+    console.time("Interpolate domain");
+    const poly = Polynomial.interpolateAtRoots(field.getPowerSeries(generator, groupOrder).toValues(), values, field);
+    console.log("Degree: ", poly.degree())
+    console.timeEnd("Interpolate domain");
+
+}
+
+function sparseZerofier() {
+
+    const groupOrder = 16;
+    const generator = field.getRootOfUnity(groupOrder);
+
+    const values: bigint[] = Array<bigint>(groupOrder);
+    for(let i=0;i<groupOrder;i++) {
+        values[i] = 0n;
+    }
+    values[groupOrder] = 1n;
+    values[0] = field.neg(1n);
+    const numerator = new Polynomial(field.newVectorFrom(values), field);
+    const denominator = new Polynomial(field.newVectorFrom([
+        field.neg(field.inv(generator)),
+        1n
+    ]), field);
+
+    const zerofier = numerator.divide(denominator);
+
+    const powersOfOmega = field.getPowerSeries(generator, groupOrder);
+
+    console.log("Zerofier value: ", zerofier.evaluate(powersOfOmega.getValue(15)));
+
+}
+
 // verifyFRI();
 //verifyRootsOfUnity();
 // verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
-// checkStark();
+checkStark();
 //testZerofier();
 //testPower();
 // testFastEvaluate();
 // testAlternativeInterpolate();
 // checkRescuePrime()
-checkSubgroup();
+// checkSubgroup();
+// fastInterpolate0and1();
+// sparseZerofier();
 
 // test();
 
