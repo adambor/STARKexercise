@@ -22,6 +22,7 @@ export class Fibonacci {
     byteLength: number;
     expansionFactor: number;
     securityLevel: number;
+    foldingFactor: number;
 
     transitionConstraints: MultiPolynomial[];
 
@@ -30,7 +31,8 @@ export class Fibonacci {
         fieldGenerator: bigint,
         byteLength: number,
         expansionFactor: number,
-        securityLevel: number
+        securityLevel: number,
+        foldingFactor: number
     ) {
 
         this.field = field;
@@ -40,6 +42,7 @@ export class Fibonacci {
         this.securityLevel = securityLevel;
 
         this.transitionConstraints = TRANSITION_CONSTRAINTS.map(data => new MultiPolynomial(data, this.field));
+        this.foldingFactor = foldingFactor;
 
     }
 
@@ -48,7 +51,7 @@ export class Fibonacci {
         proof: ProofStream
     } {
 
-        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator);
+        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
 
         let vars = [1n, 1n];
 
@@ -85,7 +88,7 @@ export class Fibonacci {
 
     verify(index: number, evaluation: bigint, proof: ProofStream) {
 
-        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator);
+        const stark = new Stark(this.field, this.byteLength, this.expansionFactor, this.securityLevel, 2, index-1, 1, this.fieldGenerator, this.foldingFactor);
 
         const boundaryConditions: BoundaryConditions = new Map([
             [0, [{cycle: 0, value: 1n}, {cycle: index-2, value: evaluation}]],

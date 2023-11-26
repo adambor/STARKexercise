@@ -60,7 +60,10 @@ export class MultiFri {
         return this.field.getPowerSeries(this.omega, this.domainLength).toValues().map(val => this.field.mul(val, this.offset));
     }
 
-    prove(codeword: bigint[], proofStream: ProofStream, byteLength: number): number[] {
+    prove(codeword: bigint[], proofStream: ProofStream, byteLength: number): {
+        initialIndices: number[],
+        codewordTrees: MultiMerkleTree[]
+    } {
         if(this.domainLength!==codeword.length) throw new Error("Invalid codeword length");
 
         const {codewordTrees, finalCodeword} = this.commit(codeword, proofStream, byteLength);
@@ -82,10 +85,16 @@ export class MultiFri {
             this.query(codewordTrees[i], codewordTrees[i+1], indices, proofStream, byteLength, i===0);
         }
 
-        return initialIndices;
+        return {
+            initialIndices,
+            codewordTrees
+        };
     }
 
-    provePoly(poly: Polynomial, proofStream: ProofStream, byteLength: number): number[] {
+    provePoly(poly: Polynomial, proofStream: ProofStream, byteLength: number): {
+        initialIndices: number[],
+        codewordTrees: MultiMerkleTree[]
+    } {
         const {codewordTrees, finalCodeword} = this.commitPoly(poly, proofStream, byteLength);
 
         const initialIndices = this.sampleIndices(
@@ -105,7 +114,10 @@ export class MultiFri {
             this.query(codewordTrees[i], codewordTrees[i+1], indices, proofStream, byteLength, i===0);
         }
 
-        return initialIndices;
+        return {
+            initialIndices,
+            codewordTrees
+        };
     }
 
     commit(codeword: bigint[], proofStream: ProofStream, byteLength: number): {
@@ -138,13 +150,7 @@ export class MultiFri {
             }
 
             // console.log("PMT committed: ", i);
-
-            const buff = Buffer.alloc(4);
-            buff.writeUintBE(i, 0, 4);
-            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                proofStream.proverFiatShamir(),
-                buff
-            ])).digest());
+            const alpha = this.field.prng(proofStream.proverFiatShamir());
 
             // console.log("Round "+i+", sampled alpha:"+alpha);
 
@@ -245,13 +251,7 @@ export class MultiFri {
 
             // console.log("PMT committed: ", i);
 
-            const buff = Buffer.alloc(4);
-            buff.writeUintBE(i, 0, 4);
-            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                proofStream.proverFiatShamir(),
-                buff
-            ])).digest());
-
+            const alpha = this.field.prng(proofStream.proverFiatShamir());
 
             omega = this.field.mul(omega, omega);
             offset = this.field.mul(offset, offset);
@@ -321,7 +321,10 @@ export class MultiFri {
 
     }
 
-    verify(proofStream: ProofStream, byteLength: number, polynomialCommitment?: Buffer): Array<[number, bigint][]> {
+    verify(proofStream: ProofStream, byteLength: number, polynomialCommitment?: Buffer): {
+        points: Array<[number, bigint][]>,
+        merkleRoots: Buffer[]
+    } {
 
         let offset = this.offset;
         let omega = this.omega;
@@ -334,10 +337,7 @@ export class MultiFri {
 
             const buff = Buffer.alloc(4);
             buff.writeUintBE(i, 0, 4);
-            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                proofStream.verifierFiatShamir(),
-                buff
-            ])).digest());
+            const alpha = this.field.prng(proofStream.verifierFiatShamir());
             alphas[i] = alpha;
         }
 
@@ -490,7 +490,10 @@ export class MultiFri {
 
         }
 
-        return topCodewordPoints;
+        return {
+            points: topCodewordPoints,
+            merkleRoots: roots
+        };
 
     }
 

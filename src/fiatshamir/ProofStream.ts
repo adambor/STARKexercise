@@ -6,6 +6,10 @@ export class ProofStream {
 
     objects: Buffer[] = [];
     readIndex: number = 0;
+    hashCache: Buffer[] = [];
+
+    proverRandomnessQueryCounts: number = 0;
+    verifierRandomnessQueryCounts: number = 0;
 
     constructor(objects: Buffer[]) {
         this.objects = objects;
@@ -55,12 +59,38 @@ export class ProofStream {
         return Buffer.concat(buffArr);
     }
 
+    hash(endIndex?: number): Buffer {
+        const buffArr = [];
+        this.objects.forEach((obj, index) => {
+            if(endIndex!=null && index>=endIndex) return;
+            const prefix = Buffer.alloc(4);
+            prefix.writeUintLE(obj.length, 0, 4);
+            buffArr.push(prefix, obj);
+        });
+        if(this.hashCache[endIndex || this.objects.length]==null) {
+            this.hashCache[endIndex || this.objects.length] = crypto.createHash("sha256").update(Buffer.concat(buffArr)).digest();
+        }
+        return this.hashCache[endIndex || this.objects.length];
+    }
+
     proverFiatShamir(): Buffer {
-        return crypto.createHash("sha256").update(this.serialize()).digest();
+        this.proverRandomnessQueryCounts++;
+        const buff = Buffer.alloc(6);
+        buff.writeUIntBE(this.proverRandomnessQueryCounts, 0, 6);
+        return crypto.createHash("sha256").update(Buffer.concat([
+            this.hash(),
+            buff
+        ])).digest();
     }
 
     verifierFiatShamir(): Buffer {
-        return crypto.createHash("sha256").update(this.serialize(this.readIndex)).digest();
+        this.verifierRandomnessQueryCounts++;
+        const buff = Buffer.alloc(6);
+        buff.writeUIntBE(this.verifierRandomnessQueryCounts, 0, 6);
+        return crypto.createHash("sha256").update(Buffer.concat([
+            this.hash(this.readIndex),
+            buff
+        ])).digest();
     }
 
     static deserialize(buff: Buffer): ProofStream {

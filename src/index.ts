@@ -61,8 +61,9 @@ function verifyFRI() {
     // console.log("Compute FRI: ", Date.now()-startTime);
 
     const proofStream = new ProofStream([]);
-    fri.provePoly(poly3, proofStream, 16);
+    const initialIndices = fri.provePoly(poly3, proofStream, 16);
     console.log("Compute FRI: ", Date.now()-startTime);
+    console.log("Initial FRI indices: ", initialIndices);
 
     const serialized = proofStream.serialize();
     console.log("Serialized proof length: ", serialized.length);
@@ -226,10 +227,10 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = 2504;
+    const proveIndex = 2*2504;
 
     let start = Date.now();
-    const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel);
+    const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel, 3);
     const fibResult = fibonacci.prove(proveIndex, false);
     console.log("Proving time: ", Date.now()-start);
 
@@ -405,7 +406,18 @@ function checkRescuePrime() {
 
 }
 
-verifyFRI();
+function checkSubgroup() {
+
+    const groupOrder = 16;
+    const generator = field.getRootOfUnity(groupOrder);
+
+    const element = field.exp(generator, 5n);
+
+    console.log("Element raised to its order: ", field.exp(element, BigInt(groupOrder)));
+
+}
+
+// verifyFRI();
 //verifyRootsOfUnity();
 // verifyDegreeIOP();
 //verifyEvaluationIOP();
@@ -416,6 +428,7 @@ verifyFRI();
 // testFastEvaluate();
 // testAlternativeInterpolate();
 // checkRescuePrime()
+checkSubgroup();
 
 // test();
 
