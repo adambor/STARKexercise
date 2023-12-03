@@ -301,23 +301,7 @@ export class FastStark {
         //Transition zerofier Zt - value of 0 on point 0...this.numCycles-1
         console.time("STARK.prove: Transition zerofier");
         const transitionZerofier = this.transitionZerofier();
-        // const transitionZerofierCodewords = transitionZerofier.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
         console.timeEnd("STARK.prove: Transition zerofier");
-
-        //Evaluate transition codewords - evaluation of multivariant polynomials Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...)
-        // console.time("STARK.prove: Transition codewords");
-        // const transitionCodewords: bigint[][] = transitionConstraints.map(transitionPolynomial => {
-        //     return this.omegaDomain.map((omegaPower, i) => {
-        //         const x = this.field.mul(omegaPower, this.friOffset);
-        //         return transitionPolynomial.evaluate(
-        //             [x].concat(
-        //                 traceCodewords.map(codeword => codeword[i]),
-        //                 traceCodewordsPlus1.map(codeword => codeword[i])
-        //             )
-        //         );
-        //     });
-        // });
-        // console.timeEnd("STARK.prove: Transition codewords");
 
         /**
          * Mt - transition multivariant polynomial
@@ -325,10 +309,7 @@ export class FastStark {
          *
          * Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...) / Zb(x)
          */
-        console.time("STARK.prove: Transition quotient codewords");
-        // const transitionQuotientCodewords: bigint[][] = transitionCodewords.map(codeword => {
-        //     return codeword.map((value, i) => this.field.div(value, transitionZerofierCodewords[i]));
-        // });
+        console.time("STARK.prove: Transition quotient polynomials");
         const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
         const transitionQuotientPolys: Polynomial[] = transitionConstraints.map(transitionPolynomial => {
             return transitionPolynomial.evaluateSymbolic([xOnlyPolynomial].concat(
@@ -336,10 +317,7 @@ export class FastStark {
                 tracePolynomialsPlus1
             )).divide(transitionZerofier);
         });
-        // const transitionQuotientCodewords: bigint[][] = transitionQuotientPolys.map(transitionQuotientPolynomial => {
-        //     return transitionQuotientPolynomial.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
-        // });
-        console.timeEnd("STARK.prove: Transition quotient codewords");
+        console.timeEnd("STARK.prove: Transition quotient polynomials");
 
         const entropy = proofStream.proverFiatShamir();
 
@@ -351,8 +329,8 @@ export class FastStark {
         if(runChecks) {
             //const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
             const transitionQuotientPolyDegrees = transitionQuotientPolys.map(poly => poly==null ? null : poly.degree());
-            console.log("Boundary quotient poly degrees: ", transitionQuotientPolyDegrees);
-            console.log("Expected boundary quotient poly degrees: ", transitionQuotientDegreeBounds);
+            console.log("Transition quotient poly degrees: ", transitionQuotientPolyDegrees);
+            console.log("Expected transition quotient poly degrees: ", transitionQuotientDegreeBounds);
         }
 
         //Construct FRI codeword of random weighted combinations of polys to be proven.

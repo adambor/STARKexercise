@@ -211,6 +211,8 @@ export class MultiPolynomial {
                 }
             }
 
+            if(resultPoly==null) return;
+
             resultPoly = this.field.mulPolyByConstant(resultPoly, value);
 
             if(acc==null) {
@@ -234,8 +236,8 @@ export class MultiPolynomial {
     static lift(poly: Polynomial, variableIndex: number): MultiPolynomial {
         const mCoefficients: [bigint[], bigint][] = [];
         const arr = Array(variableIndex);
-        arr[variableIndex-2] = 0n;
-        arr.fill(0n, 0, variableIndex-1);
+        arr[variableIndex-1] = 0n;
+        arr.fill(0n, 0, variableIndex);
         for(let i=0;i<poly.coefficients.length;i++) {
             mCoefficients.push([
                 arr.concat([BigInt(i)]),
