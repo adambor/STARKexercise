@@ -456,14 +456,15 @@ export class FastStark {
             const point = additionalIndices[i];
             //Open the specific point
             proofStream.pushBigInts(rootFRICodewordPMT.leafs[point], this.byteLength);
-            proofStream.push(rootFRICodewordPMT.openBuffer(point));
         }
+        proofStream.push(rootFRICodewordPMT.openMultipleBuffer(additionalIndices));
         console.timeEnd("STARK.prove: FRI Point opening");
 
         //Open up leaves on the boundary quotients/trace polys
         console.time("STARK.prove: Point opening");
         const pointOffsetSelectors = this.sampleNumbers(proofStream.proverFiatShamir(), Math.pow(2, this.foldingFactor), this.securityLevel);
 
+        const openIndices: number[] = [];
         for(let i=0;i<this.securityLevel;i++) {
             let point: number;
             if(i<this.numColinearityChecks) {
@@ -477,13 +478,15 @@ export class FastStark {
             const pointWithOffset = point + (pointOffsetSelectors[i] * omegaDomainDividedByFoldingFactor);
 
             proofStream.pushBigInts(combinedPMT.leafs[pointWithOffset], this.byteLength);
-            proofStream.push(combinedPMT.openBuffer(pointWithOffset));
 
             const pointWithOffsetPlus1 = (pointWithOffset + (this.expansionFactor*this.omicronExpansionFactor)) % this.omegaDomain.length;
 
             proofStream.pushBigInts(combinedPMT.leafs[pointWithOffsetPlus1], this.byteLength);
-            proofStream.push(combinedPMT.openBuffer(pointWithOffsetPlus1));
+
+            openIndices.push(pointWithOffset);
+            openIndices.push(pointWithOffsetPlus1);
         }
+        proofStream.push(combinedPMT.openMultipleBuffer(openIndices));
         console.timeEnd("STARK.prove: Point opening");
 
         // const point = sampledPoints[0];
@@ -533,14 +536,22 @@ export class FastStark {
             requiredAdditionalPoints
         );
 
-        for(let index of additionalIndices) {
-            const pointValues = proofStream.pullBigInts(this.byteLength);
-            //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: "+index+" load point: "+i);
-            if(!MultiMerkleTree.verify(topFRIMerkleRoot, index, proofStream.pull(), pointValues, this.byteLength)) throw new Error("Invalid merkle path to additional FRI point provided");
-            expandedFriPoints.push(pointValues.map((element, elementIndex) => {
-                return [index + (omegaDomainDividedByFoldingFactor*elementIndex), element];
-            }));
+        {
+            const leafs: {index: number, leaf: bigint[]}[] = [];
+            for(let index of additionalIndices) {
+                const pointValues = proofStream.pullBigInts(this.byteLength);
+                //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: "+index+" load point: "+i);
+                expandedFriPoints.push(pointValues.map((element, elementIndex) => {
+                    return [index + (omegaDomainDividedByFoldingFactor*elementIndex), element];
+                }));
+                leafs.push({
+                    index,
+                    leaf: pointValues
+                })
+            }
+            if(!MultiMerkleTree.verifyMultiple(topFRIMerkleRoot, leafs, proofStream.pull(), this.byteLength)) throw new Error("Invalid merkle path to additional FRI point provided");
         }
+
 
         console.timeEnd("STARK.verify: Load additional FRI poly points");
         //console.log("Fri points: ", friPoints.map(point => point[0]));
@@ -558,22 +569,31 @@ export class FastStark {
 
         console.time("STARK.verify: boundaryQuotientAndTraceRoots load");
         const friPoints = Array<[number, bigint]>(expandedFriPoints.length);
-        expandedFriPoints.forEach((points, pointIndex) => {
-            const point = points[pointOffsetSelectors[pointIndex]];
+        {
+            const leafs: {index: number, leaf: bigint[]}[] = [];
+            expandedFriPoints.forEach((points, pointIndex) => {
+                const point = points[pointOffsetSelectors[pointIndex]];
 
-            const polynomialValues = proofStream.pullBigInts(this.byteLength);
-            //console.log("boundaryQuotientAndTraceRoots, load opened points for polynomial: "+index+" load point: "+i);
-            if(!MultiMerkleTree.verify(boundaryQuotientAndTraceRoot, point[0], proofStream.pull(), polynomialValues, this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly");
+                const polynomialValues = proofStream.pullBigInts(this.byteLength);
+                leafs.push({
+                    index: point[0],
+                    leaf: polynomialValues
+                });
 
-            const secondIndex = (point[0] + (this.expansionFactor*this.omicronExpansionFactor)) % this.omegaDomain.length;
-            const polynomialValuesPlus1 = proofStream.pullBigInts(this.byteLength);
-            if(!MultiMerkleTree.verify(boundaryQuotientAndTraceRoot, secondIndex, proofStream.pull(), polynomialValuesPlus1, this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly (at i+1)");
+                const secondIndex = (point[0] + (this.expansionFactor*this.omicronExpansionFactor)) % this.omegaDomain.length;
+                const polynomialValuesPlus1 = proofStream.pullBigInts(this.byteLength);
+                leafs.push({
+                    index: secondIndex,
+                    leaf: polynomialValuesPlus1
+                });
 
-            polynomialValues.forEach((value, index) => boundaryQuotientAndTracePoints[index][pointIndex] = value);
-            polynomialValuesPlus1.forEach((value, index) => boundaryQuotientAndTracePointsPlus1[index][pointIndex] = value);
+                polynomialValues.forEach((value, index) => boundaryQuotientAndTracePoints[index][pointIndex] = value);
+                polynomialValuesPlus1.forEach((value, index) => boundaryQuotientAndTracePointsPlus1[index][pointIndex] = value);
 
-            friPoints[pointIndex] = point;
-        });
+                friPoints[pointIndex] = point;
+            });
+            if(!MultiMerkleTree.verifyMultiple(boundaryQuotientAndTraceRoot, leafs, proofStream.pull(), this.byteLength)) throw new Error("Invalid merkle path to boundary quotient poly / trace poly");
+        }
         console.timeEnd("STARK.verify: boundaryQuotientAndTraceRoots load");
 
         console.time("STARK.verify: Boundary polys");

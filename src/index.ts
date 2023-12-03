@@ -9,6 +9,7 @@ import exp from "constants";
 import {Fibonacci} from "./programs/Fibonacci";
 import {RescuePrime} from "./programs/RescuePrime";
 import {MultiFri} from "./fri/MultiFri";
+import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
 
 const fieldModulus = 407n * 2n ** 119n + 1n;
 const field = galois.createPrimeField(fieldModulus, false);
@@ -44,7 +45,7 @@ function verifyFRI() {
     const expansionFactor  = 4;
     const domainLength = polynomialDegree*expansionFactor;
     const omega = field.getRootOfUnity(domainLength);
-    const fri = new MultiFri(fieldGenerator, omega, domainLength, field, expansionFactor, 64, 3);
+    const fri = new MultiFri(fieldGenerator, omega, domainLength, field, expansionFactor, 64, 2);
 
     let startTime = Date.now();
     const poly3 = new Polynomial(field.newVectorFrom(Array.from({length: polynomialDegree}, (val, index) => {
@@ -463,6 +464,27 @@ function sparseZerofier() {
 
 }
 
+function verifyMultiPMTs() {
+
+    const elements = Array.from({length: 16}, () => field.rand());
+    const pmt = new MultiMerkleTree(elements.map(e => [e]), 16);
+
+    const indices = [0, 8, 14];
+    const root = pmt.commit();
+    console.log("Root: ", root);
+    console.log("Tree: ", pmt.layers);
+    const proof = pmt.openMultiple(indices);
+    console.log("Proof: ", proof);
+    const verified = MultiMerkleTree.verifyMultiple(root, indices.map(index => {
+        return {
+            index: index,
+            leaf: [elements[index]]
+        }
+    }), proof, 16);
+    console.log("Verified: ", verified);
+
+}
+
 // verifyFRI();
 //verifyRootsOfUnity();
 // verifyDegreeIOP();
@@ -477,6 +499,7 @@ checkStark();
 // checkSubgroup();
 // fastInterpolate0and1();
 // sparseZerofier();
+// verifyMultiPMTs();
 
 // test();
 

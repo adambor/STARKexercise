@@ -278,16 +278,19 @@ export class MultiFri {
     query(currentCodeword: MultiMerkleTree, nextCodeword: MultiMerkleTree, cIndices: number[], proofStream: ProofStream, byteLength: number, first: boolean): void {
         const halfNextCodeword = nextCodeword.leafs.length;
 
-        for(let i=0;i<cIndices.length;i++) {
-            if(first) {
+        if(first) {
+            for(let i=0;i<cIndices.length;i++) {
                 proofStream.pushBigInts(currentCodeword.leafs[cIndices[i]], byteLength);
-                proofStream.push(currentCodeword.openBuffer(cIndices[i]));
             }
-
-            const nextIndex = cIndices[i] % halfNextCodeword;
-            proofStream.pushBigInts(nextCodeword.leafs[nextIndex], byteLength);
-            proofStream.push(nextCodeword.openBuffer(nextIndex));
+            proofStream.push(currentCodeword.openMultipleBuffer(cIndices));
         }
+
+        const reducedIndices = cIndices.map(e => e % halfNextCodeword);
+
+        for(let i=0;i<reducedIndices.length;i++) {
+            proofStream.pushBigInts(nextCodeword.leafs[reducedIndices[i]], byteLength);
+        }
+        proofStream.push(nextCodeword.openMultipleBuffer(reducedIndices));
     }
 
     sampleIndices(seed: Buffer, initialSize: number, foldedSize: number, numTests: number): number[] {
@@ -399,19 +402,44 @@ export class MultiFri {
         for(let i=0;i<rounds;i++) {
 
             const currentDomainLength = this.domainLength >> (this.foldingFactor*(i+1));
+            const nextDomainLength = currentDomainLength >> this.foldingFactor;
 
-            for(let j=0;j<this.numColinearityTests;j++) {
-                const computedIndex = topLevelIndices[j] % currentDomainLength;
-
-                if(i===0) {
+            if(i===0) {
+                for(let j=0;j<this.numColinearityTests;j++) {
                     lastOpened[j] = proofStream.pullBigInts(byteLength);
-                    const proofAB = proofStream.pull();
-                    //Verify correct commitment
-                    if(!MultiMerkleTree.verify(roots[i], computedIndex, proofAB, lastOpened[j], byteLength)) throw new Error("Merkle proof verify failed for f(A) and f(B), round: "+i);
 
                     //Also fill up top codeword points
                     topCodewordPoints[j] = Array<[number, bigint]>(Math.pow(2, this.foldingFactor));
                 }
+                const proofAB = proofStream.pull();
+
+                //Verify correct commitment
+                if(!MultiMerkleTree.verifyMultiple(roots[i], topLevelIndices.map((topLevelIndex, index) => {
+                    return {
+                        index: topLevelIndex % currentDomainLength,
+                        leaf: lastOpened[index]
+                    }
+                }), proofAB, byteLength)) throw new Error("Merkle proof verify failed for f(A) and f(B), round: "+i);
+            }
+
+            const currentOpenedLeafs: bigint[][] = Array<bigint[]>(this.numColinearityTests);
+            if(i!==rounds-1) {
+                for(let j=0;j<this.numColinearityTests;j++) {
+                    currentOpenedLeafs[j] = proofStream.pullBigInts(byteLength);
+                }
+                const proofC = proofStream.pull();
+
+                //Verify correct commitment
+                if(!MultiMerkleTree.verifyMultiple(roots[i+1], topLevelIndices.map((topLevelIndex, index) => {
+                    return {
+                        index: topLevelIndex % nextDomainLength,
+                        leaf: currentOpenedLeafs[index]
+                    }
+                }), proofC, byteLength)) throw new Error("Merkle proof verify failed for f(C), round: "+i);
+            }
+
+            for(let j=0;j<this.numColinearityTests;j++) {
+                const computedIndex = topLevelIndices[j] % currentDomainLength;
 
                 let expectedFCs: bigint[] = lastOpened[j];
                 for(let step=0;step<this.foldingFactor;step++) {
@@ -462,15 +490,12 @@ export class MultiFri {
 
                 const expectedFC = expectedFCs[0];
 
-                const nextDomainLength = currentDomainLength >> this.foldingFactor;
                 let currentOpened: bigint[];
                 let fC: bigint;
                 if(i===rounds-1) {
                     fC = lastCodeword[computedIndex];
                 } else {
-                    currentOpened = proofStream.pullBigInts(byteLength);
-                    const proofC = proofStream.pull();
-                    if(!MultiMerkleTree.verify(roots[i+1], computedIndex % nextDomainLength, proofC, currentOpened, byteLength)) throw new Error("Merkle proof verify failed for f(C)");
+                    currentOpened = currentOpenedLeafs[j];
 
                     const index = Math.floor(computedIndex/nextDomainLength);
                     fC = currentOpened[index];
