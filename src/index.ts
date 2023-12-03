@@ -9,7 +9,11 @@ import exp from "constants";
 import {Fibonacci} from "./programs/Fibonacci";
 import {RescuePrime} from "./programs/RescuePrime";
 import {MultiFri} from "./fri/MultiFri";
+<<<<<<< HEAD
 import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
+=======
+import {NumCompare} from "./programs/NumCompare";
+>>>>>>> 3c20af090a7195f901c62fc2b57c0968d43f486a
 
 const fieldModulus = 407n * 2n ** 119n + 1n;
 const field = galois.createPrimeField(fieldModulus, false);
@@ -228,7 +232,7 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = (256*1024)+1;
+    const proveIndex = (128*1024)+1;
 
     let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel, 3);
@@ -482,6 +486,15 @@ function verifyMultiPMTs() {
         }
     }), proof, 16);
     console.log("Verified: ", verified);
+}
+
+function checkNumCompare() {
+
+    const comparator =  new NumCompare(field, fieldGenerator, 16, 4, 128, 1);
+
+    const proof = comparator.prove(8123123n, 98421321n, 63, true);
+
+    console.log("Proof length: ", proof.proof.serialize().length);
 
 }
 
@@ -490,7 +503,7 @@ function verifyMultiPMTs() {
 // verifyDegreeIOP();
 //verifyEvaluationIOP();
 //checkPolySpeed();
-checkStark();
+// checkStark();
 //testZerofier();
 //testPower();
 // testFastEvaluate();
@@ -500,6 +513,7 @@ checkStark();
 // fastInterpolate0and1();
 // sparseZerofier();
 // verifyMultiPMTs();
+checkNumCompare();
 
 // test();
 
