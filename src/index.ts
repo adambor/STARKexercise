@@ -9,11 +9,8 @@ import exp from "constants";
 import {Fibonacci} from "./programs/Fibonacci";
 import {RescuePrime} from "./programs/RescuePrime";
 import {MultiFri} from "./fri/MultiFri";
-<<<<<<< HEAD
 import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
-=======
 import {NumCompare} from "./programs/NumCompare";
->>>>>>> 3c20af090a7195f901c62fc2b57c0968d43f486a
 
 const fieldModulus = 407n * 2n ** 119n + 1n;
 const field = galois.createPrimeField(fieldModulus, false);
