@@ -229,11 +229,11 @@ function checkStark() {
     const securityLevel = 128;
     const byteLength = 16;
 
-    const proveIndex = (128*1024)+1;
+    const proveIndex = (4*1024)+1;
 
     let start = Date.now();
     const fibonacci = new Fibonacci(field, offset, byteLength, expansionFactor, securityLevel, 3);
-    const fibResult = fibonacci.prove(proveIndex, false);
+    const fibResult = fibonacci.prove(proveIndex, true);
     console.log("Proving time: ", Date.now()-start);
 
     console.log("Fibonacci output: ", fibResult.output);
@@ -489,9 +489,19 @@ function checkNumCompare() {
 
     const comparator =  new NumCompare(field, fieldGenerator, 16, 4, 128, 1);
 
-    const proof = comparator.prove(8123123n, 98421321n, 63, true);
+    const num1 = 8123122n;
 
-    console.log("Proof length: ", proof.proof.serialize().length);
+    console.time("Stark prove");
+    const proveData = comparator.prove(num1, 1n, 63, true);
+    console.timeEnd("Stark prove");
+
+    const proof = proveData.proof.serialize();
+
+    console.log("Proof length: ", proof.length);
+
+    console.time("Stark verify");
+    comparator.verify(num1, 63, proveData.proof);
+    console.timeEnd("Stark verify");
 
 }
 

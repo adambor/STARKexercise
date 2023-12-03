@@ -83,7 +83,9 @@ export class Polynomial {
 
     equals(b: Polynomial): boolean {
         for(let i=0;i<this.coefficients.length;i++) {
-            if(this.coefficients.getValue(i)!==b.coefficients.getValue(i)) return false;
+            if((this.coefficients.getValue(i) || 0n)!==(b.coefficients.getValue(i) || 0n)) {
+                return false;
+            }
         }
         return true;
     }

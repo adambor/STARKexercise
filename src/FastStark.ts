@@ -269,14 +269,11 @@ export class FastStark {
         console.timeEnd("STARK.prove: Boundary quotient codewords");
 
         if(runChecks) {
-            const boundaryQuotientCodewords: bigint[][] = boundaryQuotientPolys.map((boundaryQuotientPoly) => {
-                return boundaryQuotientPoly==null ? null : boundaryQuotientPoly.evaluateAtRootsWithOffset(this.omegaDomain, this.friOffset);
-            });
-
-            const _boundaryQuotientPolys = boundaryQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
-            const _boundaryQuotientPolyDegrees = _boundaryQuotientPolys.map(poly => poly==null ? null : poly.degree());
+            const _boundaryQuotientPolyDegrees = boundaryQuotientPolys.map(poly => poly==null ? null : poly.degree());
             console.log("Boundary quotient poly degrees: ", _boundaryQuotientPolyDegrees);
             console.log("Expected boundary quotient poly degrees: ", this.boundaryQuotientDegreeBounds(boundaryZerofiers));
+            const reconstructedTraces = boundaryQuotientPolys.map((quotientPoly, index) => quotientPoly==null ? null : quotientPoly.fastMul(boundaryZerofiers[index]).add(boundaryInterpolants[index]));
+            console.log("Reconstructed traces match: ", reconstructedTraces.map((reconstructedTrace, index) => reconstructedTrace==null ? null : reconstructedTrace.equals(tracePolynomials[index])));
         }
 
         //Map boundary quotient codewords (use raw traces for registries without boundary constraints) to PMTs
@@ -311,15 +308,14 @@ export class FastStark {
          */
         console.time("STARK.prove: Transition quotient polynomials");
         const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
-        const transitionQuotientPolys: Polynomial[] = transitionConstraints.map(transitionPolynomial => {
+        const transitionPolys = transitionConstraints.map(transitionPolynomial => {
             return transitionPolynomial.evaluateSymbolic([xOnlyPolynomial].concat(
                 tracePolynomials,
                 tracePolynomialsPlus1
-            )).divide(transitionZerofier);
+            ));
         });
+        const transitionQuotientPolys: Polynomial[] = transitionPolys.map(transitionPolynomial => transitionPolynomial.divide(transitionZerofier));
         console.timeEnd("STARK.prove: Transition quotient polynomials");
-
-        const entropy = proofStream.proverFiatShamir();
 
         //Get degree bounds for respective transition quotients, these depend on the degree of the transition constraints
         console.time("STARK.prove: Transition quotient degree bounds");
@@ -328,13 +324,16 @@ export class FastStark {
 
         if(runChecks) {
             //const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
-            const transitionQuotientPolyDegrees = transitionQuotientPolys.map(poly => poly==null ? null : poly.degree());
+            const transitionQuotientPolyDegrees = transitionQuotientPolys.map(poly => poly.degree());
             console.log("Transition quotient poly degrees: ", transitionQuotientPolyDegrees);
             console.log("Expected transition quotient poly degrees: ", transitionQuotientDegreeBounds);
+            const reconstructedTransitionPolys = transitionQuotientPolys.map(quotientPoly => quotientPoly.fastMul(transitionZerofier));
+            console.log("Reconstructed transition polys match: ", reconstructedTransitionPolys.map((reconstructedPoly, index) => reconstructedPoly.equals(transitionPolys[index])));
         }
 
         //Construct FRI codeword of random weighted combinations of polys to be proven.
-        //const friCodeword = Array<bigint>(this.omicronDomain.length);
+        const entropy = proofStream.proverFiatShamir();
+
         let polynomialAccumulator = new Polynomial(this.field.newVectorFrom([0n]), this.field);
 
         //Transition quotients
