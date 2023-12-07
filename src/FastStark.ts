@@ -306,67 +306,119 @@ export class FastStark {
          *
          * Mt(x, P1i, P2i, ..., P1i+1, P2i+1, ...) / Zb(x)
          */
-        console.time("STARK.prove: Transition quotient polynomials");
-        const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
-        const transitionPolys = transitionConstraints.map(transitionPolynomial => {
-            return transitionPolynomial.evaluateSymbolic([xOnlyPolynomial].concat(
-                tracePolynomials,
-                tracePolynomialsPlus1
-            ));
-        });
-        const transitionQuotientPolys: Polynomial[] = transitionPolys.map(transitionPolynomial => transitionPolynomial.divide(transitionZerofier));
-        console.timeEnd("STARK.prove: Transition quotient polynomials");
-
         //Get degree bounds for respective transition quotients, these depend on the degree of the transition constraints
-        console.time("STARK.prove: Transition quotient degree bounds");
-        const transitionQuotientDegreeBounds = this.transitionQuotientDegreeBounds(this.transitionDegreeBounds(transitionConstraints));
-        console.timeEnd("STARK.prove: Transition quotient degree bounds");
+        console.time("STARK.prove: Transition degree bounds");
+        const transitionDegrees = this.transitionDegreeBounds(transitionConstraints);
+        const maxTransitionDegree = Math.max(...transitionDegrees);
+        console.timeEnd("STARK.prove: Transition degree bounds");
+
+        console.time("STARK.prove: Transition quotient folding");
+        //Fold all transition contraints into single master transition constraint
+        const foldEntropy = proofStream.proverFiatShamir();
+        let masterTransitionConstraint: MultiPolynomial = null;
+        transitionConstraints.forEach((transitionConstraint, index) => {
+            const buff = Buffer.alloc(6);
+            buff.writeUIntBE(index, 0, 6);
+
+            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                foldEntropy,
+                buff,
+                Buffer.from("10", "hex")
+            ])).digest());
+
+            const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+                foldEntropy,
+                buff,
+                Buffer.from("11", "hex")
+            ])).digest());
+
+            const xPower = maxTransitionDegree - transitionDegrees[index];
+
+            const computedMPoly = transitionConstraint.mul(new MultiPolynomial(new Map<bigint[], bigint>([
+                [[0n], alpha],
+                [[BigInt(xPower)], beta]
+            ]), this.field));
+
+            if (masterTransitionConstraint == null) {
+                masterTransitionConstraint = computedMPoly;
+            } else {
+                masterTransitionConstraint = masterTransitionConstraint.add(computedMPoly);
+            }
+        });
+        console.timeEnd("STARK.prove: Transition quotient folding");
+
+        console.time("STARK.prove: Transition quotient polynomial");
+        const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
+        const transitionPoly: Polynomial = masterTransitionConstraint.evaluateSymbolic([xOnlyPolynomial].concat(
+            tracePolynomials,
+            tracePolynomialsPlus1
+        ));
+        const transitionQuotientPoly: Polynomial = transitionPoly.divide(transitionZerofier);
+        console.timeEnd("STARK.prove: Transition quotient polynomial");
+
+        const transitionQuotientPolyDegree = maxTransitionDegree-(this.unexpandedOmicronDomain.length-1);
 
         if(runChecks) {
-            //const transitionQuotientPolys = transitionQuotientCodewords.map(codeword => codeword==null ? null : Polynomial.interpolateDomain(this.omegaDomain.map(omegaPower => this.field.mul(omegaPower, this.friOffset)), codeword, this.field))
-            const transitionQuotientPolyDegrees = transitionQuotientPolys.map(poly => poly.degree());
-            console.log("Transition quotient poly degrees: ", transitionQuotientPolyDegrees);
-            console.log("Expected transition quotient poly degrees: ", transitionQuotientDegreeBounds);
-            const reconstructedTransitionPolys = transitionQuotientPolys.map(quotientPoly => quotientPoly.fastMul(transitionZerofier));
-            console.log("Reconstructed transition polys match: ", reconstructedTransitionPolys.map((reconstructedPoly, index) => reconstructedPoly.equals(transitionPolys[index])));
+            console.log("Expected master transition constraint poly degree: ", maxTransitionDegree);
+            console.log("Transition quotient poly degree: ", transitionPoly.degree());
+            console.log("Expected transition quotient poly degree: ", transitionQuotientPolyDegree);
+            console.log("Transition quotient poly degree: ", transitionQuotientPoly.degree());
+            const reconstructedTransitionPolys = transitionQuotientPoly.fastMul(transitionZerofier);
+            console.log("Reconstructed transition poly matches: ", reconstructedTransitionPolys.equals(transitionPoly));
         }
 
         //Construct FRI codeword of random weighted combinations of polys to be proven.
         const entropy = proofStream.proverFiatShamir();
 
-        let polynomialAccumulator = new Polynomial(this.field.newVectorFrom([0n]), this.field);
+        console.time("STARK.prove: Random combination - transition quotient");
+        const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+            entropy,
+            Buffer.from("FFFFFFFFFFFF00", "hex")
+        ])).digest());
+        const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+            entropy,
+            Buffer.from("FFFFFFFFFFFF01", "hex")
+        ])).digest());
+
+        const xPower = this.omicronDomain.length-transitionQuotientPolyDegree-1;
+        const multiplicantCoefficients = [];
+        multiplicantCoefficients[xPower] = beta;
+        multiplicantCoefficients.fill(0n, 0, xPower);
+        multiplicantCoefficients[0] = alpha;
+        let polynomialAccumulator = transitionQuotientPoly.fastMul(new Polynomial(this.field.newVectorFrom(multiplicantCoefficients), this.field));
+        console.timeEnd("STARK.prove: Random combination - transition quotient");
 
         //Transition quotients
-        console.time("STARK.prove: Random combination - transition quotients");
-        transitionQuotientPolys.forEach((quotientPolynomial, index) => {
-
-            const buff = Buffer.alloc(6);
-            buff.writeUIntBE(index, 0, 6);
-
-            const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                entropy,
-                buff,
-                Buffer.from("00", "hex")
-            ])).digest());
-
-            const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                entropy,
-                buff,
-                Buffer.from("01", "hex")
-            ])).digest());
-
-            const xPower = this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1;
-            const multiplicantCoefficients = [];
-            multiplicantCoefficients[xPower] = beta;
-            multiplicantCoefficients.fill(0n, 0, xPower);
-            multiplicantCoefficients[0] = alpha;
-
-            const resultPolynomial = quotientPolynomial.fastMul(new Polynomial(this.field.newVectorFrom(multiplicantCoefficients), this.field));
-
-            polynomialAccumulator = polynomialAccumulator.add(resultPolynomial);
-
-        });
-        console.timeEnd("STARK.prove: Random combination - transition quotients");
+        // console.time("STARK.prove: Random combination - transition quotients");
+        // transitionQuotientPolys.forEach((quotientPolynomial, index) => {
+        //
+        //     const buff = Buffer.alloc(6);
+        //     buff.writeUIntBE(index, 0, 6);
+        //
+        //     const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("00", "hex")
+        //     ])).digest());
+        //
+        //     const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+        //         entropy,
+        //         buff,
+        //         Buffer.from("01", "hex")
+        //     ])).digest());
+        //
+        //     const xPower = this.omicronDomain.length-transitionQuotientDegreeBounds[index]-1;
+        //     const multiplicantCoefficients = [];
+        //     multiplicantCoefficients[xPower] = beta;
+        //     multiplicantCoefficients.fill(0n, 0, xPower);
+        //     multiplicantCoefficients[0] = alpha;
+        //
+        //     const resultPolynomial = quotientPolynomial.fastMul(new Polynomial(this.field.newVectorFrom(multiplicantCoefficients), this.field));
+        //
+        //     polynomialAccumulator = polynomialAccumulator.add(resultPolynomial);
+        //
+        // });
+        // console.timeEnd("STARK.prove: Random combination - transition quotients");
 
         let boundaryQuotientDegreeBounds = this.boundaryQuotientDegreeBounds(boundaryZerofiers);
 
@@ -491,6 +543,7 @@ export class FastStark {
 
         //console.log("boundaryQuotientAndTraceRoots", boundaryQuotientAndTraceRoots);
 
+        const foldingEntropy = proofStream.verifierFiatShamir();
         const entropy = proofStream.verifierFiatShamir();
 
         console.time("STARK.verify: FRI");
@@ -583,27 +636,55 @@ export class FastStark {
         // console.time("STARK.verify: Transition zerofier");
         // const transitionZerofier = this.transitionZerofier();
         // console.timeEnd("STARK.verify: Transition zerofier");
+        console.time("STARK.verify: Transition degree bounds");
+        const transitionDegrees = this.transitionDegreeBounds(transitionConstraints);
+        const maxTransitionDegree = Math.max(...transitionDegrees);
+        console.timeEnd("STARK.verify: Transition degree bounds");
 
-        const transitionQuotientDegreeBounds = this.transitionQuotientDegreeBounds(this.transitionDegreeBounds(transitionConstraints));
-
-        const transitionQuotientWeights: [bigint, bigint][] = transitionQuotientDegreeBounds.map((val, index) => {
+        console.time("STARK.verify: Transition quotient folding");
+        //Fold all transition contraints into single master transition constraint
+        let masterTransitionConstraint: MultiPolynomial = null;
+        transitionConstraints.forEach((transitionConstraint, index) => {
             const buff = Buffer.alloc(6);
             buff.writeUIntBE(index, 0, 6);
 
             const alpha = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                entropy,
+                foldingEntropy,
                 buff,
-                Buffer.from("00", "hex")
+                Buffer.from("10", "hex")
             ])).digest());
 
             const beta = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
-                entropy,
+                foldingEntropy,
                 buff,
-                Buffer.from("01", "hex")
+                Buffer.from("11", "hex")
             ])).digest());
 
-            return [alpha, beta];
+            const xPower = maxTransitionDegree - transitionDegrees[index];
+
+            const computedMPoly = transitionConstraint.mul(new MultiPolynomial(new Map<bigint[], bigint>([
+                [[0n], alpha],
+                [[BigInt(xPower)], beta]
+            ]), this.field));
+
+            if (masterTransitionConstraint == null) {
+                masterTransitionConstraint = computedMPoly;
+            } else {
+                masterTransitionConstraint = masterTransitionConstraint.add(computedMPoly);
+            }
         });
+        console.timeEnd("STARK.verify: Transition quotient folding");
+
+        const transitionQuotientPolyDegree = maxTransitionDegree-(this.unexpandedOmicronDomain.length-1);
+        const alphaMaster = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+            entropy,
+            Buffer.from("FFFFFFFFFFFF00", "hex")
+        ])).digest());
+        const betaMaster = this.field.prng(crypto.createHash("sha256").update(Buffer.concat([
+            entropy,
+            Buffer.from("FFFFFFFFFFFF01", "hex")
+        ])).digest());
+        const xPowerMaster = this.omicronDomain.length-transitionQuotientPolyDegree-1;
 
         const boundaryQuotientWeights: [bigint, bigint][] = boundaryQuotientDegreeBounds.map((val, index) => {
             const buff = Buffer.alloc(6);
@@ -682,30 +763,21 @@ export class FastStark {
             );
 
             //Evaluate transition polynomial
-            const transitionPolynomialValues = transitionConstraints.map(constraint => {
-                return constraint.evaluate(multivariantPoint);
-            });
+            const transitionPolynomialValue: bigint = masterTransitionConstraint.evaluate(multivariantPoint);
+            const transitionZerofierEvaluation: bigint = this.transitionZerofierEvaluate(x);
 
-            const transitionQuotientValues: bigint[] = transitionPolynomialValues.map(val => this.field.div(val, this.transitionZerofierEvaluate(x)));
+            const transitionQuotientValue: bigint = this.field.div(transitionPolynomialValue, transitionZerofierEvaluation);
 
-            let resultingPoint = 0n;
-
-            transitionQuotientValues.forEach((transitionQuotientValue, transitionIndex) => {
-
-                const addVal = this.field.mul(
-                    this.field.add(
-                        transitionQuotientWeights[transitionIndex][0],
-                        this.field.mul(
-                            transitionQuotientWeights[transitionIndex][1],
-                            this.field.exp(x, BigInt(this.omicronDomain.length-transitionQuotientDegreeBounds[transitionIndex]-1))
-                        )
-                    ),
-                    transitionQuotientValue
-                );
-
-                resultingPoint = this.field.add(resultingPoint, addVal);
-
-            });
+            let resultingPoint = this.field.mul(
+                this.field.add(
+                    alphaMaster,
+                    this.field.mul(
+                        betaMaster,
+                        this.field.exp(x, BigInt(xPowerMaster))
+                    )
+                ),
+                transitionQuotientValue
+            );
 
             boundaryQuotientAndTracePoints.forEach((boundaryQuotientAndTraceValues, boundaryIndex) => {
 

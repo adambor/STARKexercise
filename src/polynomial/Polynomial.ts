@@ -81,6 +81,10 @@ export class Polynomial {
         return new Polynomial(this.field.mulPolys(this.coefficients, b.coefficients), this.field);
     }
 
+    mulByConstant(b: bigint): Polynomial {
+        return new Polynomial(this.field.mulPolyByConstant(this.coefficients, b), this.field);
+    }
+
     equals(b: Polynomial): boolean {
         for(let i=0;i<this.coefficients.length;i++) {
             if((this.coefficients.getValue(i) || 0n)!==(b.coefficients.getValue(i) || 0n)) {

@@ -145,13 +145,28 @@ export class MultiPolynomial {
     evaluate(point: bigint[]): bigint {
         let acc: bigint = 0n;
 
+        const powerMap: bigint[][] = [];
+
         this.coefficients.forEach((value, key) => {
             for(let i=0;i<key.length;i++) {
-                if(key[i]!==0n) value = this.field.mul(
-                    value,
-                    this.field.exp(point[i], key[i])
-                );
+                if(key[i]!==0n) {
+                    let power: bigint;
+                    if(powerMap[i]!=null) {
+                        power = powerMap[i][Number(key[i])]
+                    } else {
+                        powerMap[i] = [];
+                    }
+                    if(power==null) {
+                        power = this.field.exp(point[i], key[i]);
+                        powerMap[i][Number(key[i])] = power;
+                    }
+                    value = this.field.mul(
+                        value,
+                        power
+                    );
+                }
             }
+
             acc = this.field.add(acc, value);
         });
 
