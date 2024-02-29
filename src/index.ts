@@ -11,10 +11,16 @@ import {RescuePrime} from "./programs/RescuePrime";
 import {MultiFri} from "./fri/MultiFri";
 import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
 import {NumCompare} from "./programs/NumCompare";
+import {StarkSchnorr} from "./programs/StarkSchnorr";
 
-const fieldModulus = 407n * 2n ** 119n + 1n;
+// const fieldModulus = 407n * 2n ** 119n + 1n;
+// const field = galois.createPrimeField(fieldModulus, false);
+// const fieldGenerator = 85408008396924667383611388730472331217n;
+
+const fieldModulus = 2n ** 251n + 17n * 2n ** 192n + 1n;
 const field = galois.createPrimeField(fieldModulus, false);
-const fieldGenerator = 85408008396924667383611388730472331217n;
+const fieldGenerator = 3n;
+const byteLength = 32;
 
 function verifyPolyMul() {
     const poly = new Polynomial(field.newVectorFrom(Array.from({length: 10}, () => field.rand())), field);
@@ -487,7 +493,7 @@ function verifyMultiPMTs() {
 
 function checkNumCompare() {
 
-    const comparator =  new NumCompare(field, fieldGenerator, 16, 4, 128, 1);
+    const comparator =  new NumCompare(field, fieldGenerator, byteLength, 4, 128, 1);
 
     const num1 = 8123122n;
 
@@ -502,6 +508,22 @@ function checkNumCompare() {
     console.time("Stark verify");
     comparator.verify(num1, 63, proveData.proof);
     console.timeEnd("Stark verify");
+
+}
+
+function schnorr() {
+
+    const schnorr =  new StarkSchnorr(field, fieldGenerator, byteLength, 4, 128, 1);
+
+    const privateKey = schnorr.randomKey();
+    const publicKey = schnorr.toPublicKey(privateKey);
+
+    const message = schnorr.randomKey();
+
+    const signature = schnorr.sign(privateKey, message);
+    const verification = schnorr.sigVerify(publicKey, message, signature);
+
+    console.log("Signature verification: ", verification);
 
 }
 
@@ -520,7 +542,7 @@ function checkNumCompare() {
 // fastInterpolate0and1();
 // sparseZerofier();
 // verifyMultiPMTs();
-checkNumCompare();
+schnorr();
 
 // test();
 
