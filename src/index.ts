@@ -11,7 +11,7 @@ import {RescuePrime} from "./programs/RescuePrime";
 import {MultiFri} from "./fri/MultiFri";
 import {MultiMerkleTree} from "./merkle/MultiMerkleTree";
 import {NumCompare} from "./programs/NumCompare";
-import {StarkSchnorr} from "./programs/StarkSchnorr";
+import {generatorPoint, StarkSchnorr} from "./programs/StarkSchnorr";
 
 // const fieldModulus = 407n * 2n ** 119n + 1n;
 // const field = galois.createPrimeField(fieldModulus, false);
@@ -522,8 +522,10 @@ function schnorr() {
 
     const signature = schnorr.sign(privateKey, message);
     const verification = schnorr.sigVerify(publicKey, message, signature);
-
     console.log("Signature verification: ", verification);
+
+    const proof = schnorr.prove(signature.R, message, publicKey, true);
+    schnorr.verify(signature.R, message, publicKey, proof.proof);
 
 }
 

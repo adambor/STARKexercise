@@ -33,14 +33,13 @@ Registers:
     [6] Pn double lambda: lambda*2Pny = 3Pnx^2 + a
     [7] Pn + H sum lambda: (Pnx - Hx)*lambda = (Pny - Hy)
 
-    //Later
-    - s bits
-    - s sum
+    [8] s bits
+    [9] s sum
 
-    - Sx
-    - Sy
+    [10] Sx
+    [11] Sy
 
-    - S sum lambda: (iGx - Sx)*lambda = (iGy - Sy)
+    [12] S sum lambda: (iGx - Sx)*lambda = (iGy - Sy)
 */
 
 /*
@@ -91,7 +90,7 @@ const lambdaPnDouble = createRegister();
 const lambdaHSum = createRegister();
 
 const groupOrder = 3618502788666131213697322783095070105526743751716087489154079457884512865583n;
-const generatorPoint: [bigint, bigint] = [874739451078007766457464989774322083649278607533249481151382481072868806602n, 152666792071518830868575557812948353041420400780739481342941381225525861407n];
+export const generatorPoint: [bigint, bigint] = [874739451078007766457464989774322083649278607533249481151382481072868806602n, 152666792071518830868575557812948353041420400780739481342941381225525861407n];
 const alpha = 1n;
 const beta = 3141592653589793238462643383279502884197169399375105820974944592307816406665n;
 
@@ -106,7 +105,7 @@ const TRANSITION_CONSTRAINTS = [
     new Map<bigint[], bigint>([
         [toRow([lambdaPnDouble[0], 1n], [Pny[0], 1n]), 2n],
         [toRow([Pnx[0], 2n]), -3n],
-        [toRow(), -alpha]
+        [toRow(), (-1n)*alpha]
     ]), //Public key doubling lambda: 2*lambda*Pny = 3Pnx^2 + a
     new Map<bigint[], bigint>([
         [toRow([Pnx[1], 1n]), 1n],
@@ -141,15 +140,15 @@ const TRANSITION_CONSTRAINTS = [
 
     new Map<bigint[], bigint>([
         [toRow([eBits[0], 1n], [Hy[1], 1n]), 1n],
-        [toRow([eBits[0], 1n], [lambdaPnDouble[0], 1n], [Hx[0], 1n]), -1n],
-        [toRow([eBits[0], 1n], [lambdaPnDouble[0], 1n], [Hx[1], 1n]), 1n],
+        [toRow([eBits[0], 1n], [lambdaHSum[0], 1n], [Hx[0], 1n]), -1n],
+        [toRow([eBits[0], 1n], [lambdaHSum[0], 1n], [Hx[1], 1n]), 1n],
         [toRow([eBits[0], 1n], [Hy[0], 1n]), 1n],
     ]),
     //y coordinate:
     // (H1y = lambda*(H0x - H1x) - H0y)*e
     // (H1y - lambda*(H0x - H1x) + H0y)*e
     // (H1y - lambda*H0x + lambda*H1x + H0y)*e
-    // e*H1y - e*lambda*H0x - e*lambda*H1x + e*H0y
+    // e*H1y - e*lambda*H0x + e*lambda*H1x + e*H0y
 
     //H0 = H1 if e is 0
     new Map<bigint[], bigint>([
@@ -230,9 +229,11 @@ export class StarkSchnorr {
     }
 
     ecAdd(point1: [bigint, bigint], point2: [bigint, bigint]): [bigint, bigint] {
+        if(point1[0]===point2[0] && point1[1]===point2[1]) return this.ecDouble(point1);
+
         const lambda = this.field.div(
-            this.field.sub(point2[0], point1[0]),
-            this.field.sub(point2[1], point1[1])
+            this.field.sub(point2[1], point1[1]),
+            this.field.sub(point2[0], point1[0])
         );
         const _X = this.field.sub(
             this.field.exp(lambda, 2n),
@@ -254,20 +255,20 @@ export class StarkSchnorr {
 
         let accumulator: [bigint, bigint] = null;
 
-        for(let i=fieldBits-1;i>=0;i--) {
+        for(let i=fieldBits;i>=0;i--) {
+            //Double
+            if(accumulator!=null) {
+                accumulator = this.ecDouble(accumulator);
+            }
+
             //Add
-            const bit = scalar>>BigInt(i);
+            const bit = (scalar>>BigInt(i)) & 1n;
             if(bit===1n) {
                 if(accumulator==null) {
                     accumulator = point;
                 } else {
                     accumulator = this.ecAdd(accumulator, point);
                 }
-            }
-
-            //Double
-            if(accumulator!=null) {
-                accumulator = this.ecDouble(accumulator);
             }
         }
 
@@ -297,6 +298,9 @@ export class StarkSchnorr {
     sigVerify(publicKey: [bigint, bigint], e: bigint, signature: {R: [bigint, bigint], s: bigint}): boolean {
         const left = this.ecAdd(signature.R, this.ecMul(e, publicKey));
         const right = this.ecMul(signature.s, generatorPoint);
+
+        console.log(left);
+        console.log(right);
 
         return left[0]===right[0] && left[1]===right[1];
     }
@@ -340,21 +344,21 @@ export class StarkSchnorr {
 
         let sum: bigint = 0n;
         let H: [bigint, bigint] = nonceR;
-        let Pn: [bigint, bigint] = [pubkeyP[0], this.field.neg(pubkeyP[1])];
+        let Pn: [bigint, bigint] = pubkeyP;
 
         for(let i=0;i<fieldBits+1;i++) {
             //Bit decomposition
             const bit1 = BigInt(num1Binary.charAt(i));
-            traces[eBits[0]].push(bit1);
+            traces[eBits[0]-1].push(bit1);
             const bit1Mul = this.field.mul(bit1, powersOf2[i]);
-            traces[eSum[0]].push(sum);
+            traces[eSum[0]-1].push(sum);
             sum = this.field.add(sum, bit1Mul);
 
-            traces[Hx[0]].push(H[0]);
-            traces[Hy[0]].push(H[1]);
+            traces[Hx[0]-1].push(H[0]);
+            traces[Hy[0]-1].push(H[1]);
 
-            traces[Pnx[0]].push(Pn[0]);
-            traces[Pny[0]].push(Pn[1]);
+            traces[Pnx[0]-1].push(Pn[0]);
+            traces[Pny[0]-1].push(Pn[1]);
 
             const _lambdaPnDouble = this.field.div(
                 this.field.add(
@@ -363,13 +367,13 @@ export class StarkSchnorr {
                 ),
                 this.field.mul(2n, Pn[1])
             );
-            traces[lambdaPnDouble[0]].push(_lambdaPnDouble);
+            traces[lambdaPnDouble[0]-1].push(_lambdaPnDouble);
 
             const _lambdaHSum = this.field.div(
-                this.field.sub(Pn[0], H[0]),
-                this.field.sub(Pn[1], H[1])
+                this.field.sub(Pn[1], H[1]),
+                this.field.sub(Pn[0], H[0])
             );
-            traces[lambdaHSum[0]].push(_lambdaHSum);
+            traces[lambdaHSum[0]-1].push(_lambdaHSum);
 
             if(bit1===1n) {
                 const _Hx = this.field.sub(
@@ -404,13 +408,33 @@ export class StarkSchnorr {
             ];
         }
 
+        // for(let i=0;i<fieldBits;i++) {
+        //     const x = stark.unexpandedOmicronDomain[i];
+        //
+        //     let _traces = Array<bigint>(totalRegisters);
+        //     let _tracesPlus1 = Array<bigint>(totalRegisters);
+        //     for(let e=0;e<totalRegisters;e++) {
+        //         _traces[e] = traces[e][i];
+        //         _tracesPlus1[e] = traces[e][i+1];
+        //     }
+        //
+        //     const state = [x].concat(_traces, _tracesPlus1);
+        //
+        //     const evaluations = transitionConstraints.map(poly => poly.evaluate(state));
+        //
+        //     console.log(evaluations);
+        // }
+
+        console.log(traces[Hx[0]-1][255]);
+        console.log(traces[Hy[0]-1][255]);
+
         const boundaryConditions: BoundaryConditions = new Map([
-            [eBits[0], [{cycle: fieldBits, value: 0n}]],
-            [eSum[0], [{cycle: 0, value: 0n}, {cycle: fieldBits, value: hashe}]],
-            [Hx[0], [{cycle: 0, value: nonceR[0]}]],
-            [Hy[0], [{cycle: 0, value: nonceR[1]}]],
-            [Pnx[0], [{cycle: 0, value: pubkeyP[0]}]],
-            [Pny[0], [{cycle: 0, value: this.field.neg(pubkeyP[1])}]]
+            [eBits[0]-1, [{cycle: fieldBits, value: 0n}]],
+            [eSum[0]-1, [{cycle: 0, value: 0n}, {cycle: fieldBits, value: hashe}]],
+            [Hx[0]-1, [{cycle: 0, value: nonceR[0]}]],
+            [Hy[0]-1, [{cycle: 0, value: nonceR[1]}]],
+            [Pnx[0]-1, [{cycle: 0, value: pubkeyP[0]}]],
+            [Pny[0]-1, [{cycle: 0, value: pubkeyP[1]}]]
         ]);
 
         const proofStream = new ProofStream([]);
@@ -451,12 +475,12 @@ export class StarkSchnorr {
             .concat(num1Summand);
 
         const boundaryConditions: BoundaryConditions = new Map([
-            [eBits[0], [{cycle: fieldBits, value: 0n}]],
-            [eSum[0], [{cycle: 0, value: 0n}, {cycle: fieldBits, value: hashe}]],
-            [Hx[0], [{cycle: 0, value: nonceR[0]}]],
-            [Hy[0], [{cycle: 0, value: nonceR[1]}]],
-            [Pnx[0], [{cycle: 0, value: pubkeyP[0]}]],
-            [Pny[0], [{cycle: 0, value: this.field.neg(pubkeyP[1])}]]
+            [eBits[0]-1, [{cycle: fieldBits, value: 0n}]],
+            [eSum[0]-1, [{cycle: 0, value: 0n}, {cycle: fieldBits, value: hashe}]],
+            [Hx[0]-1, [{cycle: 0, value: nonceR[0]}]],
+            [Hy[0]-1, [{cycle: 0, value: nonceR[1]}]],
+            [Pnx[0]-1, [{cycle: 0, value: pubkeyP[0]}]],
+            [Pny[0]-1, [{cycle: 0, value: pubkeyP[1]}]]
         ]);
 
         stark.verify(proof, transitionConstraints, boundaryConditions);

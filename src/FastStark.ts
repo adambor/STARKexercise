@@ -312,7 +312,7 @@ export class FastStark {
         const maxTransitionDegree = Math.max(...transitionDegrees);
         console.timeEnd("STARK.prove: Transition degree bounds");
 
-        console.time("STARK.prove: Transition quotient folding");
+        console.time("STARK.prove: Transition constraint folding");
         //Fold all transition contraints into single master transition constraint
         const foldEntropy = proofStream.proverFiatShamir();
         let masterTransitionConstraint: MultiPolynomial = null;
@@ -345,14 +345,17 @@ export class FastStark {
                 masterTransitionConstraint = masterTransitionConstraint.add(computedMPoly);
             }
         });
-        console.timeEnd("STARK.prove: Transition quotient folding");
+        console.timeEnd("STARK.prove: Transition constraint folding");
 
-        console.time("STARK.prove: Transition quotient polynomial");
+        console.time("STARK.prove: Transition constraint symbolic evaluation");
         const xOnlyPolynomial = new Polynomial(this.field.newVectorFrom([0n, 1n]), this.field);
         const transitionPoly: Polynomial = masterTransitionConstraint.evaluateSymbolic([xOnlyPolynomial].concat(
             tracePolynomials,
             tracePolynomialsPlus1
         ));
+        console.timeEnd("STARK.prove: Transition constraint symbolic evaluation");
+
+        console.time("STARK.prove: Transition quotient polynomial");
         const transitionQuotientPoly: Polynomial = transitionPoly.divide(transitionZerofier);
         console.timeEnd("STARK.prove: Transition quotient polynomial");
 
